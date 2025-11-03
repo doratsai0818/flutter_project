@@ -16,9 +16,11 @@ class _HomePageState extends State<HomePage> {
     String _selectedToggleMode = '...';
     
     // 概況總覽數據
-    String _powerToday = '...';
-    String _weather = '...';
-    String _estimatedSavings = '...';
+    String _totalPowerToday = '...';
+    String _currentTemperature = '...';
+    String _currentHumidity = '...';
+    String _acSetTemp = '(未設置)';
+    String _fanSpeed = '(未設置)';
 
     // 裝置列表
     List<Map<String, dynamic>> _devices = [];
@@ -49,17 +51,60 @@ class _HomePageState extends State<HomePage> {
                 print('獲取切換模式失敗: ${toggleResponse.statusCode}');
             }
 
-            // 使用 ApiService 獲取概況總覽數據
-            final overviewResponse = await ApiService.get('/overview');
-            if (overviewResponse.statusCode == 200) {
-                final data = json.decode(overviewResponse.body);
+            // 獲取今日累積用電量
+            final powerResponse = await ApiService.get('/power-total-today');
+            if (powerResponse.statusCode == 200) {
+                final data = json.decode(powerResponse.body);
                 setState(() {
-                    _powerToday = data['power_today']?.toString() ?? '...';
-                    _weather = data['weather'] ?? '...';
-                    _estimatedSavings = data['estimated_savings']?.toString() ?? '...';
+                    _totalPowerToday = data['total_kwh']?.toString() ?? '0.0';
                 });
             } else {
-                print('獲取概況數據失敗: ${overviewResponse.statusCode}');
+                print('獲取用電量失敗: ${powerResponse.statusCode}');
+            }
+
+            // 獲取目前環境溫溼度
+            final tempHumidityResponse = await ApiService.get('/temp-humidity/status');
+            if (tempHumidityResponse.statusCode == 200) {
+                final data = json.decode(tempHumidityResponse.body);
+                if (data['success'] == true && data['data'] != null) {
+                    setState(() {
+                        _currentTemperature = data['data']['temperature_c']?.toString() ?? '...';
+                        _currentHumidity = data['data']['humidity_percent']?.toString() ?? '...';
+                    });
+                }
+            } else {
+                print('獲取溫溼度失敗: ${tempHumidityResponse.statusCode}');
+            }
+
+            // 獲取冷氣設置溫度
+            final acResponse = await ApiService.get('/ac/status');
+            if (acResponse.statusCode == 200) {
+                final data = json.decode(acResponse.body);
+                final temp = data['current_set_temp'];
+                setState(() {
+                    _acSetTemp = temp != null ? '${temp}°C' : '(未設置)';
+                });
+            } else {
+                print('獲取冷氣設置失敗: ${acResponse.statusCode}');
+            }
+
+            // 獲取風扇設置檔數
+            final fanResponse = await ApiService.get('/fan/status');
+            if (fanResponse.statusCode == 200) {
+                final data = json.decode(fanResponse.body);
+                if (data['success'] == true && data['data'] != null) {
+                    final isOn = data['data']['isOn'] ?? false;
+                    final speed = data['data']['speed'] ?? 0;
+                    setState(() {
+                        if (isOn && speed > 0) {
+                            _fanSpeed = '第 $speed 檔';
+                        } else {
+                            _fanSpeed = '(未設置)';
+                        }
+                    });
+                }
+            } else {
+                print('獲取風扇狀態失敗: ${fanResponse.statusCode}');
             }
 
             // 使用 ApiService 獲取裝置列表
@@ -81,7 +126,7 @@ class _HomePageState extends State<HomePage> {
             }
         } catch (e) {
             print('Error fetching data: $e');
-            _showErrorSnackBar('載入資料失敗，請檢查網路連線');
+            _showErrorSnackBar('載入資料失敗,請檢查網路連線');
         } finally {
             setState(() {
                 _isLoading = false;
@@ -97,7 +142,7 @@ class _HomePageState extends State<HomePage> {
                 setState(() {
                     _selectedToggleMode = newMode;
                 });
-                _showSuccessSnackBar('切換模式已更新為：$newMode');
+                _showSuccessSnackBar('切換模式已更新為:$newMode');
             } else {
                 final responseBody = json.decode(response.body);
                 print('Failed to update toggle mode: ${responseBody['message']}');
@@ -105,7 +150,7 @@ class _HomePageState extends State<HomePage> {
             }
         } catch (e) {
             print('Error updating toggle mode: $e');
-            _showErrorSnackBar('網路連線錯誤，請稍後再試');
+            _showErrorSnackBar('網路連線錯誤,請稍後再試');
         }
     }
 
@@ -193,6 +238,8 @@ class _HomePageState extends State<HomePage> {
                                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                             ),
                             const SizedBox(height: 16),
+                            
+                            // 第一行:今日累積用電量 & 目前環境溫溼度
                             Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                                 children: [
@@ -201,17 +248,127 @@ class _HomePageState extends State<HomePage> {
                                         height: cardGeneralHeight,
                                         children: [
                                             const Text(
-                                                '今日總用電量 (kWh)',
+                                                '今日累積用電量',
                                                 textAlign: TextAlign.center,
                                                 style: TextStyle(fontSize: 14, color: Colors.black54),
                                             ),
                                             const SizedBox(height: 8),
                                             Text(
-                                                _powerToday,
+                                                _totalPowerToday,
                                                 textAlign: TextAlign.center,
                                                 style: const TextStyle(
                                                     fontSize: 28,
                                                     fontWeight: FontWeight.bold,
+                                                    color: Colors.blue,
+                                                ),
+                                            ),
+                                            const Text(
+                                                'kWh',
+                                                textAlign: TextAlign.center,
+                                                style: TextStyle(fontSize: 14, color: Colors.black54),
+                                            ),
+                                        ],
+                                    ),
+                                    _buildOverviewCard(
+                                        width: cardGeneralWidth,
+                                        height: cardGeneralHeight,
+                                        children: [
+                                            const Text(
+                                                '目前環境溫溼度',
+                                                textAlign: TextAlign.center,
+                                                style: TextStyle(fontSize: 14, color: Colors.black54),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Row(
+                                                mainAxisAlignment: MainAxisAlignment.center,
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                    Icon(
+                                                        Icons.thermostat,
+                                                        size: 20,
+                                                        color: Colors.orange,
+                                                    ),
+                                                    const SizedBox(width: 4),
+                                                    Text(
+                                                        _currentTemperature,
+                                                        style: const TextStyle(
+                                                            fontSize: 22,
+                                                            fontWeight: FontWeight.bold,
+                                                            color: Colors.orange,
+                                                        ),
+                                                    ),
+                                                    const Text(
+                                                        '°C',
+                                                        style: TextStyle(
+                                                            fontSize: 12,
+                                                            fontWeight: FontWeight.bold,
+                                                            color: Colors.orange,
+                                                        ),
+                                                    ),
+                                                ],
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Row(
+                                                mainAxisAlignment: MainAxisAlignment.center,
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                    Icon(
+                                                        Icons.water_drop,
+                                                        size: 20,
+                                                        color: Colors.blueAccent,
+                                                    ),
+                                                    const SizedBox(width: 4),
+                                                    Text(
+                                                        _currentHumidity,
+                                                        style: const TextStyle(
+                                                            fontSize: 22,
+                                                            fontWeight: FontWeight.bold,
+                                                            color: Colors.blueAccent,
+                                                        ),
+                                                    ),
+                                                    const Text(
+                                                        '%',
+                                                        style: TextStyle(
+                                                            fontSize: 12,
+                                                            fontWeight: FontWeight.bold,
+                                                            color: Colors.blueAccent,
+                                                        ),
+                                                    ),
+                                                ],
+                                            ),
+                                        ],
+                                    ),
+                                ],
+                            ),
+                            const SizedBox(height: 16),
+                            
+                            // 第二行:冷氣設置溫度 & 風扇設置檔數
+                            Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                                children: [
+                                    _buildOverviewCard(
+                                        width: cardGeneralWidth,
+                                        height: cardGeneralHeight,
+                                        children: [
+                                            const Text(
+                                                '冷氣設置溫度',
+                                                textAlign: TextAlign.center,
+                                                style: TextStyle(fontSize: 14, color: Colors.black54),
+                                            ),
+                                            const SizedBox(height: 8),
+                                            Icon(
+                                                Icons.ac_unit,
+                                                size: 36,
+                                                color: _acSetTemp == '(未設置)' ? Colors.grey : Colors.cyan,
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                                _acSetTemp,
+                                                textAlign: TextAlign.center,
+                                                style: TextStyle(
+                                                    fontSize: 20,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: _acSetTemp == '(未設置)' ? Colors.grey : Colors.cyan,
                                                 ),
                                             ),
                                         ],
@@ -221,50 +378,29 @@ class _HomePageState extends State<HomePage> {
                                         height: cardGeneralHeight,
                                         children: [
                                             const Text(
-                                                '今日天氣',
+                                                '風扇設置檔數',
                                                 textAlign: TextAlign.center,
                                                 style: TextStyle(fontSize: 14, color: Colors.black54),
                                             ),
                                             const SizedBox(height: 8),
                                             Icon(
-                                                _getWeatherIcon(_weather),
-                                                size: 40,
-                                                color: _getWeatherColor(_weather),
+                                                Icons.air,
+                                                size: 36,
+                                                color: _fanSpeed == '(未設置)' ? Colors.grey : Colors.teal,
                                             ),
+                                            const SizedBox(height: 4),
                                             Text(
-                                                _weather,
+                                                _fanSpeed,
                                                 textAlign: TextAlign.center,
-                                                style: const TextStyle(
+                                                style: TextStyle(
                                                     fontSize: 20,
                                                     fontWeight: FontWeight.bold,
+                                                    color: _fanSpeed == '(未設置)' ? Colors.grey : Colors.teal,
                                                 ),
                                             ),
                                         ],
                                     ),
                                 ],
-                            ),
-                            const SizedBox(height: 16),
-                            Center(
-                                child: _buildOverviewCard(
-                                    width: cardGeneralWidth,
-                                    height: cardGeneralHeight,
-                                    children: [
-                                        const Text(
-                                            '今日預估節省電費(元)',
-                                            textAlign: TextAlign.center,
-                                            style: TextStyle(fontSize: 14, color: Colors.black54),
-                                        ),
-                                        const SizedBox(height: 8),
-                                        Text(
-                                            _estimatedSavings,
-                                            textAlign: TextAlign.center,
-                                            style: const TextStyle(
-                                                fontSize: 28,
-                                                fontWeight: FontWeight.bold,
-                                            ),
-                                        ),
-                                    ],
-                                ),
                             ),
                             const SizedBox(height: 32),
 
@@ -518,38 +654,6 @@ class _HomePageState extends State<HomePage> {
             return Colors.red;
         } else {
             return Colors.black54;
-        }
-    }
-
-    IconData _getWeatherIcon(String weather) {
-        switch (weather.toLowerCase()) {
-            case 'sunny':
-            case '晴天':
-                return Icons.wb_sunny;
-            case 'cloudy':
-            case '陰天':
-                return Icons.cloud;
-            case 'rainy':
-            case '雨天':
-                return Icons.water_drop;
-            default:
-                return Icons.wb_sunny;
-        }
-    }
-
-    Color _getWeatherColor(String weather) {
-        switch (weather.toLowerCase()) {
-            case 'sunny':
-            case '晴天':
-                return Colors.orange;
-            case 'cloudy':
-            case '陰天':
-                return Colors.blueGrey;
-            case 'rainy':
-            case '雨天':
-                return Colors.blue;
-            default:
-                return Colors.orange;
         }
     }
 }
