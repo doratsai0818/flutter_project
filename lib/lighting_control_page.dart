@@ -1,356 +1,230 @@
-// lib/lighting_control_page.dart
+// lib/wiz_light_control_page.dart
 
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'dart:async';
-import 'package:iot_project/main.dart'; // 引入 main.dart 以使用 ApiService
+import 'package:iot_project/main.dart';
 
 class LightingControlPage extends StatefulWidget {
   const LightingControlPage({super.key});
 
   @override
-  State<LightingControlPage> createState() => _LightingControlPageState();
+  State<LightingControlPage> createState() => _LightingControlPage();
 }
 
-class _LightingControlPageState extends State<LightingControlPage> {
-  // 燈光狀態變數
-  bool _isManualMode = false; // false: 自動，true: 手動
+class _LightingControlPage extends State<LightingControlPage> {
+  // 燈泡狀態
+  List<LightState> _lights = [
+    LightState(name: '燈泡fang', ip: '192.168.1.108'),
+    LightState(name: '燈泡yaa', ip: '192.168.1.109'),
+  ];
 
-  // 各區燈光亮度 (0-100) 和色溫 (K)
-  double _brightnessA = 50.0;
-  double _colorTempA = 4000.0; // 色溫範圍 2700K(暖)到6500K(冷)
-  double _brightnessB = 70.0;
-  double _colorTempB = 5000.0;
-  double _brightnessC = 30.0;
-  double _colorTempC = 3000.0;
-
-  // 各區建議值 (自動模式，可以從智能算法獲取)
-  double _suggestedBrightnessA = 60.0;
-  double _suggestedColorTempA = 4500.0;
-  double _suggestedBrightnessB = 80.0;
-  double _suggestedColorTempB = 5500.0;
-  double _suggestedBrightnessC = 40.0;
-  double _suggestedColorTempC = 3500.0;
-
-  // 燈光定時設定
-  bool _isLightTimerOn = false;
-  TimeOfDay? _selectedLightOnTime;
-  TimeOfDay? _selectedLightOffTime;
-
-  // 載入狀態
+  String? _activeScene;
   bool _isLoading = true;
-
-  // 計時器管理
-  Timer? _timer;
+  bool _isManualMode = false;
+  Timer? _refreshTimer;
   Timer? _debounceTimer;
+
+  // 情境配置
+  final List<SceneConfig> _scenes = [
+    SceneConfig(
+      id: 'daily',
+      name: '日常情境',
+      description: '根據時間自動調整',
+      icon: Icons.wb_sunny,
+      color: Colors.orange,
+    ),
+    SceneConfig(
+      id: 'christmas',
+      name: '聖誕節',
+      description: '紅綠白交替閃爍',
+      icon: Icons.celebration,
+      color: Colors.red,
+    ),
+    SceneConfig(
+      id: 'party',
+      name: '派對',
+      description: '多彩快速變換',
+      icon: Icons.party_mode,
+      color: Colors.purple,
+    ),
+    SceneConfig(
+      id: 'halloween',
+      name: '萬聖節',
+      description: '橙紫神秘氛圍',
+      icon: Icons.nightlight,
+      color: Colors.deepOrange,
+    ),
+  ];
 
   @override
   void initState() {
     super.initState();
-    _fetchLightingStatus();
+    _fetchLightStatus();
+    _startAutoRefresh();
   }
 
   @override
   void dispose() {
-    _timer?.cancel();
+    _refreshTimer?.cancel();
     _debounceTimer?.cancel();
     super.dispose();
   }
 
-  // --- API 互動方法 ---
-
-  /// 安全地將動態值轉換為 double
-  double _parseToDouble(dynamic value, double defaultValue) {
-    if (value == null) return defaultValue;
-    
-    if (value is num) {
-      return value.toDouble();
-    }
-    
-    if (value is String) {
-      try {
-        return double.parse(value);
-      } catch (e) {
-        print('Error parsing string to double: $value, error: $e');
-        return defaultValue;
-      }
-    }
-    
-    print('Unexpected value type for numeric field: ${value.runtimeType}, value: $value');
-    return defaultValue;
+  void _startAutoRefresh() {
+    _refreshTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+      _fetchLightStatus();
+    });
   }
 
-  /// 從後端獲取當前燈光狀態
-  Future<void> _fetchLightingStatus() async {
-    setState(() {
-      _isLoading = true;
-    });
-    
+  Future<void> _fetchLightStatus() async {
     try {
-      final response = await ApiService.get('/lighting/status');
-      
+      final response = await ApiService.get('/wiz-lights/status');
+
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         setState(() {
-          // 根據資料庫欄位名稱映射，使用安全的解析方法
-          _isManualMode = data['is_manual_mode'] ?? false;
-          _brightnessA = _parseToDouble(data['brightness_a'], 50.0);
-          _colorTempA = _parseToDouble(data['color_temp_a'], 4000.0);
-          _brightnessB = _parseToDouble(data['brightness_b'], 70.0);
-          _colorTempB = _parseToDouble(data['color_temp_b'], 5000.0);
-          _brightnessC = _parseToDouble(data['brightness_c'], 30.0);
-          _colorTempC = _parseToDouble(data['color_temp_c'], 3000.0);
-          _isLightTimerOn = data['is_light_timer_on'] ?? false;
-
-          // 更新定時設定
-          _updateTimerFromData(data);
-        });
-
-        if (_isLightTimerOn && _selectedLightOffTime != null) {
-          _startTimerForAutoOff();
-        }
-      } else if (response.statusCode == 404) {
-        _showErrorSnackBar('找不到燈光設定，請檢查帳戶設定');
-      } else {
-        _showErrorSnackBar('載入燈光設定失敗');
-      }
-    } catch (e) {
-      print('Error fetching lighting status: $e');
-      _showErrorSnackBar('網路連線錯誤，請檢查連線狀態');
-    } finally {
-      setState(() {
-        _isLoading = false;
-      });
-    }
-  }
-
-  /// 從數據更新定時器設定
-  void _updateTimerFromData(Map<String, dynamic> data) {
-    if (data['timer_on_time'] != null) {
-      try {
-        final onTimeParts = data['timer_on_time'].toString().split(':');
-        if (onTimeParts.length >= 2) {
-          _selectedLightOnTime = TimeOfDay(
-            hour: int.parse(onTimeParts[0]),
-            minute: int.parse(onTimeParts[1]),
-          );
-        }
-      } catch (e) {
-        print('Error parsing timer_on_time: ${data['timer_on_time']}, error: $e');
-        _selectedLightOnTime = null;
-      }
-    } else {
-      _selectedLightOnTime = null;
-    }
-
-    if (data['timer_off_time'] != null) {
-      try {
-        final offTimeParts = data['timer_off_time'].toString().split(':');
-        if (offTimeParts.length >= 2) {
-          _selectedLightOffTime = TimeOfDay(
-            hour: int.parse(offTimeParts[0]),
-            minute: int.parse(offTimeParts[1]),
-          );
-        }
-      } catch (e) {
-        print('Error parsing timer_off_time: ${data['timer_off_time']}, error: $e');
-        _selectedLightOffTime = null;
-      }
-    } else {
-      _selectedLightOffTime = null;
-    }
-  }
-
-  /// 更新手動/自動模式
-  Future<void> _updateManualMode(bool value) async {
-    try {
-      final response = await ApiService.post('/lighting/manual-mode', {
-        'isManualMode': value,
-      });
-
-      if (response.statusCode == 200) {
-        setState(() {
-          _isManualMode = value;
-        });
-        _showSuccessSnackBar(value ? '已切換為手動模式' : '已切換為自動模式');
-        // 重新獲取最新狀態
-        await _fetchLightingStatus();
-      } else {
-        _showErrorSnackBar('模式切換失敗');
-      }
-    } catch (e) {
-      print('Error updating lighting manual mode: $e');
-      _showErrorSnackBar('網路連線錯誤，請稍後再試');
-    }
-  }
-
-  /// 更新燈光亮度
-  Future<void> _sendBrightnessUpdate(String area, double value) async {
-    try {
-      final response = await ApiService.post('/lighting/brightness', {
-        'area': area,
-        'brightness': value,
-      });
-
-      if (response.statusCode == 200) {
-        print('Sent ${area} brightness update to backend: $value');
-      } else {
-        _showErrorSnackBar('${area}區亮度更新失敗');
-      }
-    } catch (e) {
-      print('Error sending ${area} brightness update: $e');
-      _showErrorSnackBar('網路連線錯誤，請稍後再試');
-    }
-  }
-
-  /// 更新燈光色溫
-  Future<void> _sendColorTempUpdate(String area, double value) async {
-    try {
-      final response = await ApiService.post('/lighting/color-temp', {
-        'area': area,
-        'colorTemp': value,
-      });
-
-      if (response.statusCode == 200) {
-        print('Sent ${area} color temperature update to backend: $value');
-      } else {
-        _showErrorSnackBar('${area}區色溫更新失敗');
-      }
-    } catch (e) {
-      print('Error sending ${area} color temperature update: $e');
-      _showErrorSnackBar('網路連線錯誤，請稍後再試');
-    }
-  }
-
-  /// 處理定時設定確認
-  Future<void> _confirmLightTimerSettings() async {
-    if (_selectedLightOnTime == null || _selectedLightOffTime == null) {
-      _showErrorSnackBar('請先設定完整的開燈和關燈時間');
-      return;
-    }
-
-    try {
-      final response = await ApiService.post('/lighting/timer', {
-        'isLightTimerOn': true,
-        'timerOnTime': '${_selectedLightOnTime!.hour.toString().padLeft(2, '0')}:${_selectedLightOnTime!.minute.toString().padLeft(2, '0')}',
-        'timerOffTime': '${_selectedLightOffTime!.hour.toString().padLeft(2, '0')}:${_selectedLightOffTime!.minute.toString().padLeft(2, '0')}',
-      });
-
-      if (response.statusCode == 200) {
-        setState(() {
-          _isLightTimerOn = true;
-        });
-
-        _showSuccessSnackBar(
-          '燈光定時已設定：開燈 ${_selectedLightOnTime!.format(context)}，'
-          '關燈 ${_selectedLightOffTime!.format(context)}',
-        );
-        _startTimerForAutoOff();
-      } else {
-        _showErrorSnackBar('定時設定失敗');
-      }
-    } catch (e) {
-      print('Error updating light timer settings: $e');
-      _showErrorSnackBar('網路連線錯誤，請稍後再試');
-    }
-  }
-
-  /// 更新定時設定 (主要用於關閉定時)
-  Future<void> _updateLightTimer(bool isTimerOn) async {
-    try {
-      final response = await ApiService.post('/lighting/timer', {
-        'isLightTimerOn': isTimerOn,
-        'timerOnTime': isTimerOn && _selectedLightOnTime != null 
-          ? '${_selectedLightOnTime!.hour.toString().padLeft(2, '0')}:${_selectedLightOnTime!.minute.toString().padLeft(2, '0')}' 
-          : null,
-        'timerOffTime': isTimerOn && _selectedLightOffTime != null 
-          ? '${_selectedLightOffTime!.hour.toString().padLeft(2, '0')}:${_selectedLightOffTime!.minute.toString().padLeft(2, '0')}' 
-          : null,
-      });
-
-      if (response.statusCode == 200) {
-        setState(() {
-          _isLightTimerOn = isTimerOn;
-          if (!isTimerOn) {
-            _selectedLightOnTime = null;
-            _selectedLightOffTime = null;
+          if (data['lights'] != null) {
+            for (int i = 0; i < _lights.length && i < data['lights'].length; i++) {
+              final lightData = data['lights'][i];
+              _lights[i].isOn = lightData['isOn'] ?? false;
+              
+              // 確保 temp 值在有效範圍內 (2200-6500)
+              double tempValue = (lightData['temp'] ?? 4000).toDouble();
+              if (tempValue == 0) tempValue = 4000; // 關閉時預設值
+              if (tempValue < 2200) tempValue = 2200;
+              if (tempValue > 6500) tempValue = 6500;
+              _lights[i].temp = tempValue;
+              
+              // 確保 dimming 值在有效範圍內
+              double dimmingValue = (lightData['dimming'] ?? 50).toDouble();
+              if (dimmingValue < 10) dimmingValue = 10;
+              if (dimmingValue > 100) dimmingValue = 100;
+              _lights[i].dimming = dimmingValue;
+              
+              // RGB 值
+              _lights[i].r = (lightData['r'] ?? 255);
+              _lights[i].g = (lightData['g'] ?? 255);
+              _lights[i].b = (lightData['b'] ?? 255);
+              
+              _lights[i].error = lightData['error'];
+            }
           }
+          _activeScene = data['activeScene'];
+          _isManualMode = _activeScene == null;
+          _isLoading = false;
         });
-        
-        _showSuccessSnackBar(
-          isTimerOn ? '燈光定時功能已開啟' : '燈光定時功能已關閉'
-        );
-        
-        if (!isTimerOn) {
-          _timer?.cancel();
-        }
-      } else {
-        _showErrorSnackBar('定時設定更新失敗');
       }
     } catch (e) {
-      print('Error updating light timer settings: $e');
-      _showErrorSnackBar('網路連線錯誤，請稍後再試');
+      print('獲取燈泡狀態失敗: $e');
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
-  /// 啟動自動關閉定時器
-  void _startTimerForAutoOff() {
-    _timer?.cancel();
+  Future<void> _controlLight(int index, {double? temp, double? dimming, int? r, int? g, int? b}) async {
+    try {
+      final body = <String, dynamic>{
+        'lightIndex': index,
+      };
+      if (temp != null) body['temp'] = temp.round();
+      if (dimming != null) body['dimming'] = dimming.round();
+      if (r != null) body['r'] = r;
+      if (g != null) body['g'] = g;
+      if (b != null) body['b'] = b;
 
-    if (_selectedLightOffTime == null) return;
+      final response = await ApiService.post('/wiz-lights/control', body);
 
-    final now = DateTime.now();
-    final offTime = DateTime(
-      now.year,
-      now.month,
-      now.day,
-      _selectedLightOffTime!.hour,
-      _selectedLightOffTime!.minute,
-    );
+      if (response.statusCode == 200) {
+        print('燈泡控制成功');
+      } else {
+        _showErrorSnackBar('控制失敗');
+      }
+    } catch (e) {
+      print('控制燈泡錯誤: $e');
+      _showErrorSnackBar('網路連線錯誤');
+    }
+  }
 
-    final durationUntilOff = offTime.isAfter(now)
-        ? offTime.difference(now)
-        : offTime.add(const Duration(days: 1)).difference(now);
+  Future<void> _toggleLightPower(int index) async {
+    try {
+      final response = await ApiService.post('/wiz-lights/power', {
+        'lightIndex': index,
+        'isOn': !_lights[index].isOn,
+      });
 
-    _timer = Timer(durationUntilOff, () {
-      _updateLightTimer(false);
+      if (response.statusCode == 200) {
+        setState(() {
+          _lights[index].isOn = !_lights[index].isOn;
+        });
+        _showSuccessSnackBar(_lights[index].isOn ? '已開啟' : '已關閉');
+      }
+    } catch (e) {
+      _showErrorSnackBar('操作失敗');
+    }
+  }
+
+  Future<void> _setScene(String sceneId) async {
+    try {
+      final response = await ApiService.post('/wiz-lights/scene', {
+        'scene': sceneId,
+      });
+
+      if (response.statusCode == 200) {
+        setState(() {
+          _activeScene = sceneId;
+          _isManualMode = false;
+        });
+        final sceneName = _scenes.firstWhere((s) => s.id == sceneId).name;
+        _showSuccessSnackBar('已啟動$sceneName');
+        await _fetchLightStatus();
+      }
+    } catch (e) {
+      _showErrorSnackBar('設定情境失敗');
+    }
+  }
+
+  Future<void> _stopScene() async {
+    try {
+      final response = await ApiService.post('/wiz-lights/scene/stop', {});
+
+      if (response.statusCode == 200) {
+        setState(() {
+          _activeScene = null;
+          _isManualMode = true;
+        });
+        _showSuccessSnackBar('已停止情境模式');
+      }
+    } catch (e) {
+      _showErrorSnackBar('停止失敗');
+    }
+  }
+
+  Future<void> _updateManualMode(bool value) async {
+    if (value) {
+      // 切換到手動模式,停止情境
+      await _stopScene();
+    }
+    setState(() {
+      _isManualMode = value;
     });
   }
 
-  /// 時間選擇器
-  Future<void> _selectTime(
-    BuildContext context, {
-    required ValueChanged<TimeOfDay?> onTimeSelected,
-    TimeOfDay? initialTime,
-  }) async {
-    final TimeOfDay? picked = await showTimePicker(
-      context: context,
-      initialTime: initialTime ?? TimeOfDay.now(),
-      builder: (context, child) {
-        return MediaQuery(
-          data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
-          child: child!,
-        );
-      },
-    );
-    
-    if (picked != null) {
-      onTimeSelected(picked);
-    }
-  }
-
-  /// 創建防抖控制處理器
   void Function(double) _createDebouncedHandler(
-    String area,
+    int lightIndex,
     String type,
     void Function(double) updateState,
-    Future<void> Function(String, double) sendUpdate,
   ) {
     return (value) {
       updateState(value);
       _debounceTimer?.cancel();
       _debounceTimer = Timer(const Duration(milliseconds: 500), () {
-        sendUpdate(area, value);
+        if (type == 'temp') {
+          _controlLight(lightIndex, temp: value);
+        } else if (type == 'dimming') {
+          _controlLight(lightIndex, dimming: value);
+        }
       });
     };
   }
@@ -379,10 +253,6 @@ class _LightingControlPageState extends State<LightingControlPage> {
     }
   }
 
-  Future<void> _refreshData() async {
-    await _fetchLightingStatus();
-  }
-
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -392,17 +262,14 @@ class _LightingControlPageState extends State<LightingControlPage> {
           children: [
             CircularProgressIndicator(),
             SizedBox(height: 16),
-            Text(
-              '載入燈光設定中...',
-              style: TextStyle(fontSize: 16, color: Colors.grey),
-            ),
+            Text('載入燈光設定中...', style: TextStyle(fontSize: 16)),
           ],
         ),
       );
     }
 
     return RefreshIndicator(
-      onRefresh: _refreshData,
+      onRefresh: _fetchLightStatus,
       child: SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(16.0),
@@ -434,92 +301,26 @@ class _LightingControlPageState extends State<LightingControlPage> {
             ),
             const SizedBox(height: 16),
 
-            // A區
+            // 燈泡 A (fang)
             _buildLightControlCard(
               context,
+              index: 0,
+              light: _lights[0],
               area: 'A',
-              brightness: _brightnessA,
-              colorTemp: _colorTempA,
-              onBrightnessChanged: _isManualMode
-                  ? _createDebouncedHandler(
-                      'A',
-                      'brightness',
-                      (value) => setState(() => _brightnessA = value),
-                      _sendBrightnessUpdate,
-                    )
-                  : null,
-              onColorTempChanged: _isManualMode
-                  ? _createDebouncedHandler(
-                      'A',
-                      'colorTemp',
-                      (value) => setState(() => _colorTempA = value),
-                      _sendColorTempUpdate,
-                    )
-                  : null,
-              isManualMode: _isManualMode,
-              suggestedBrightness: _suggestedBrightnessA,
-              suggestedColorTemp: _suggestedColorTempA,
             ),
             const SizedBox(height: 16),
 
-            // B區
+            // 燈泡 B (yaa)
             _buildLightControlCard(
               context,
+              index: 1,
+              light: _lights[1],
               area: 'B',
-              brightness: _brightnessB,
-              colorTemp: _colorTempB,
-              onBrightnessChanged: _isManualMode
-                  ? _createDebouncedHandler(
-                      'B',
-                      'brightness',
-                      (value) => setState(() => _brightnessB = value),
-                      _sendBrightnessUpdate,
-                    )
-                  : null,
-              onColorTempChanged: _isManualMode
-                  ? _createDebouncedHandler(
-                      'B',
-                      'colorTemp',
-                      (value) => setState(() => _colorTempB = value),
-                      _sendColorTempUpdate,
-                    )
-                  : null,
-              isManualMode: _isManualMode,
-              suggestedBrightness: _suggestedBrightnessB,
-              suggestedColorTemp: _suggestedColorTempB,
-            ),
-            const SizedBox(height: 16),
-
-            // C區
-            _buildLightControlCard(
-              context,
-              area: 'C',
-              brightness: _brightnessC,
-              colorTemp: _colorTempC,
-              onBrightnessChanged: _isManualMode
-                  ? _createDebouncedHandler(
-                      'C',
-                      'brightness',
-                      (value) => setState(() => _brightnessC = value),
-                      _sendBrightnessUpdate,
-                    )
-                  : null,
-              onColorTempChanged: _isManualMode
-                  ? _createDebouncedHandler(
-                      'C',
-                      'colorTemp',
-                      (value) => setState(() => _colorTempC = value),
-                      _sendColorTempUpdate,
-                    )
-                  : null,
-              isManualMode: _isManualMode,
-              suggestedBrightness: _suggestedBrightnessC,
-              suggestedColorTemp: _suggestedColorTempC,
             ),
             const SizedBox(height: 32),
 
-            // 燈光定時
-            _buildTimerSection(),
+            // 燈光情境
+            _buildSceneSection(),
             const SizedBox(height: 20),
           ],
         ),
@@ -527,7 +328,6 @@ class _LightingControlPageState extends State<LightingControlPage> {
     );
   }
 
-  /// 建構模式控制區域
   Widget _buildModeControl() {
     return Container(
       padding: const EdgeInsets.all(16.0),
@@ -580,160 +380,19 @@ class _LightingControlPageState extends State<LightingControlPage> {
     );
   }
 
-  /// 建構定時器控制區域
-  Widget _buildTimerSection() {
-    return Container(
-      padding: const EdgeInsets.all(16.0),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(15),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.2),
-            spreadRadius: 2,
-            blurRadius: 5,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                '燈光定時',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-              ),
-              Switch(
-                value: _isLightTimerOn,
-                onChanged: (value) {
-                  if (value) {
-                    setState(() => _isLightTimerOn = true);
-                  } else {
-                    _updateLightTimer(false);
-                  }
-                },
-                activeColor: Theme.of(context).primaryColor,
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          _isLightTimerOn ? _buildTimerSettings() : _buildTimerDisabled(),
-        ],
-      ),
-    );
-  }
-
-  /// 建構定時器設定界面
-  Widget _buildTimerSettings() {
-    return Column(
-      children: [
-        _buildTimeSelector(
-          label: '開燈時間:',
-          time: _selectedLightOnTime,
-          onTimeSelected: (picked) {
-            setState(() => _selectedLightOnTime = picked);
-          },
-        ),
-        const SizedBox(height: 12),
-        _buildTimeSelector(
-          label: '關燈時間:',
-          time: _selectedLightOffTime,
-          onTimeSelected: (picked) {
-            setState(() => _selectedLightOffTime = picked);
-          },
-        ),
-        const SizedBox(height: 20),
-        Center(
-          child: ElevatedButton(
-            onPressed: _confirmLightTimerSettings,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Theme.of(context).primaryColor,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 15),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
-            child: const Text('確定', style: TextStyle(fontSize: 18)),
-          ),
-        ),
-      ],
-    );
-  }
-
-  /// 建構定時器禁用狀態
-  Widget _buildTimerDisabled() {
-    return const Center(
-      child: Text(
-        '燈光定時功能已關閉',
-        style: TextStyle(fontSize: 16, color: Colors.grey),
-      ),
-    );
-  }
-
-  /// 建構時間選擇器
-  Widget _buildTimeSelector({
-    required String label,
-    required TimeOfDay? time,
-    required ValueChanged<TimeOfDay?> onTimeSelected,
-  }) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(label, style: const TextStyle(fontSize: 16)),
-        GestureDetector(
-          onTap: () async {
-            await _selectTime(
-              context,
-              initialTime: time,
-              onTimeSelected: onTimeSelected,
-            );
-          },
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: Colors.grey.shade200,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.access_time, size: 16),
-                const SizedBox(width: 8),
-                Text(
-                  time?.format(context) ?? '未設定',
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  /// 建構燈光控制卡片
   Widget _buildLightControlCard(
     BuildContext context, {
+    required int index,
+    required LightState light,
     required String area,
-    required double brightness,
-    required double colorTemp,
-    required ValueChanged<double>? onBrightnessChanged,
-    required ValueChanged<double>? onColorTempChanged,
-    required bool isManualMode,
-    required double suggestedBrightness,
-    required double suggestedColorTemp,
   }) {
-    final Color sliderActiveColor = isManualMode 
+    final Color sliderActiveColor = _isManualMode 
         ? Theme.of(context).primaryColor 
         : Colors.grey;
-    final Color sliderInactiveColor = isManualMode 
+    final Color sliderInactiveColor = _isManualMode 
         ? Colors.grey[300]! 
         : Colors.grey[200]!;
-    final Color textColor = isManualMode ? Colors.black87 : Colors.grey;
+    final Color textColor = _isManualMode ? Colors.black87 : Colors.grey;
 
     return Container(
       padding: const EdgeInsets.all(16.0),
@@ -754,22 +413,49 @@ class _LightingControlPageState extends State<LightingControlPage> {
         children: [
           Row(
             children: [
-              // 區域標識
+              // 區域標識和開關
               Container(
-                width: 40,
-                height: 40,
+                width: 60,
+                height: 60,
                 decoration: BoxDecoration(
-                  color: Theme.of(context).primaryColor.withOpacity(0.1),
+                  color: light.isOn
+                      ? Colors.amber.withOpacity(0.3)
+                      : Colors.grey.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                alignment: Alignment.center,
-                child: Text(
-                  area,
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: Theme.of(context).primaryColor,
-                  ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      area,
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: light.isOn 
+                            ? Theme.of(context).primaryColor 
+                            : Colors.grey,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    GestureDetector(
+                      onTap: _isManualMode ? () => _toggleLightPower(index) : null,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: light.isOn ? Colors.green : Colors.grey,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          light.isOn ? 'ON' : 'OFF',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(width: 10),
@@ -788,7 +474,7 @@ class _LightingControlPageState extends State<LightingControlPage> {
                           style: TextStyle(fontSize: 16, color: textColor),
                         ),
                         Text(
-                          '${brightness.round()}%',
+                          '${light.dimming.round()}%',
                           style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
@@ -798,11 +484,17 @@ class _LightingControlPageState extends State<LightingControlPage> {
                       ],
                     ),
                     _buildSlider(
-                      value: brightness,
-                      min: 0,
+                      value: light.dimming.clamp(10, 100),
+                      min: 10,
                       max: 100,
-                      divisions: 100,
-                      onChanged: onBrightnessChanged,
+                      divisions: 90,
+                      onChanged: _isManualMode
+                          ? _createDebouncedHandler(
+                              index,
+                              'dimming',
+                              (value) => setState(() => light.dimming = value.clamp(10, 100)),
+                            )
+                          : null,
                       activeColor: sliderActiveColor,
                       inactiveColor: sliderInactiveColor,
                     ),
@@ -815,7 +507,7 @@ class _LightingControlPageState extends State<LightingControlPage> {
                           style: TextStyle(fontSize: 16, color: textColor),
                         ),
                         Text(
-                          '${colorTemp.round()}K',
+                          '${light.temp.round()}K',
                           style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
@@ -825,11 +517,17 @@ class _LightingControlPageState extends State<LightingControlPage> {
                       ],
                     ),
                     _buildSlider(
-                      value: colorTemp,
-                      min: 2700,
+                      value: light.temp.clamp(2200, 6500),
+                      min: 2200,
                       max: 6500,
-                      divisions: (6500 - 2700).toInt(),
-                      onChanged: onColorTempChanged,
+                      divisions: 43,
+                      onChanged: _isManualMode
+                          ? _createDebouncedHandler(
+                              index,
+                              'temp',
+                              (value) => setState(() => light.temp = value.clamp(2200, 6500)),
+                            )
+                          : null,
                       activeColor: sliderActiveColor,
                       inactiveColor: sliderInactiveColor,
                     ),
@@ -838,7 +536,70 @@ class _LightingControlPageState extends State<LightingControlPage> {
               ),
             ],
           ),
-          if (!isManualMode) ...[
+          
+          // RGB 控制區
+          if (_isManualMode) ...[
+            const SizedBox(height: 16),
+            const Divider(),
+            const SizedBox(height: 8),
+            Text(
+              'RGB 色彩調整',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: textColor,
+              ),
+            ),
+            const SizedBox(height: 12),
+            _buildRGBSlider('紅', light.r.toDouble(), Colors.red, (value) {
+              setState(() => light.r = value.round());
+              _debounceTimer?.cancel();
+              _debounceTimer = Timer(const Duration(milliseconds: 500), () {
+                _controlLight(index, r: light.r, g: light.g, b: light.b);
+              });
+            }),
+            _buildRGBSlider('綠', light.g.toDouble(), Colors.green, (value) {
+              setState(() => light.g = value.round());
+              _debounceTimer?.cancel();
+              _debounceTimer = Timer(const Duration(milliseconds: 500), () {
+                _controlLight(index, r: light.r, g: light.g, b: light.b);
+              });
+            }),
+            _buildRGBSlider('藍', light.b.toDouble(), Colors.blue, (value) {
+              setState(() => light.b = value.round());
+              _debounceTimer?.cancel();
+              _debounceTimer = Timer(const Duration(milliseconds: 500), () {
+                _controlLight(index, r: light.r, g: light.g, b: light.b);
+              });
+            }),
+            const SizedBox(height: 8),
+            Container(
+              height: 40,
+              decoration: BoxDecoration(
+                color: Color.fromRGBO(light.r, light.g, light.b, 1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey[300]!),
+              ),
+              child: const Center(
+                child: Text(
+                  '當前顏色預覽',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    shadows: [
+                      Shadow(
+                        offset: Offset(1, 1),
+                        blurRadius: 3,
+                        color: Colors.black,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+          
+          if (!_isManualMode) ...[
             const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.all(8),
@@ -851,13 +612,37 @@ class _LightingControlPageState extends State<LightingControlPage> {
                 children: [
                   Icon(Icons.auto_awesome, size: 16, color: Colors.blue.shade700),
                   const SizedBox(width: 8),
-                  Text(
-                    '自動模式 - 系統智慧調節中',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.blue.shade700,
-                      fontWeight: FontWeight.w500,
+                  Expanded(
+                    child: Text(
+                      _activeScene != null 
+                          ? '${_scenes.firstWhere((s) => s.id == _activeScene).name}模式運行中'
+                          : '自動模式 - 系統智慧調節中',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.blue.shade700,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          if (light.error != null) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.red[50],
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.error_outline, color: Colors.red[700], size: 16),
+                  const SizedBox(width: 8),
+                  Text(
+                    light.error!,
+                    style: TextStyle(color: Colors.red[700], fontSize: 12),
                   ),
                 ],
               ),
@@ -868,7 +653,49 @@ class _LightingControlPageState extends State<LightingControlPage> {
     );
   }
 
-  /// 建構統一樣式的滑塊
+  Widget _buildRGBSlider(String label, double value, Color color, ValueChanged<double> onChanged) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 30,
+            child: Text(
+              label,
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+            ),
+          ),
+          Expanded(
+            child: SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                trackHeight: 3,
+                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.0),
+                activeTrackColor: color,
+                inactiveTrackColor: color.withOpacity(0.3),
+                thumbColor: color,
+              ),
+              child: Slider(
+                value: value,
+                min: 0,
+                max: 255,
+                divisions: 255,
+                onChanged: onChanged,
+              ),
+            ),
+          ),
+          SizedBox(
+            width: 35,
+            child: Text(
+              '${value.round()}',
+              style: const TextStyle(fontSize: 12),
+              textAlign: TextAlign.right,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildSlider({
     required double value,
     required double min,
@@ -897,4 +724,134 @@ class _LightingControlPageState extends State<LightingControlPage> {
       ),
     );
   }
+
+  Widget _buildSceneSection() {
+    return Container(
+      padding: const EdgeInsets.all(16.0),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(15),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.2),
+            spreadRadius: 2,
+            blurRadius: 5,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '燈光情境',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 16),
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 12,
+              childAspectRatio: 1.5,
+            ),
+            itemCount: _scenes.length,
+            itemBuilder: (context, index) {
+              final scene = _scenes[index];
+              final isActive = _activeScene == scene.id;
+
+              return InkWell(
+                onTap: () => _setScene(scene.id),
+                borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: isActive ? scene.color.withOpacity(0.2) : Colors.grey[100],
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isActive ? scene.color : Colors.grey[300]!,
+                      width: isActive ? 2 : 1,
+                    ),
+                  ),
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        scene.icon,
+                        size: 32,
+                        color: isActive ? scene.color : Colors.grey[600],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        scene.name,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+                          color: isActive ? scene.color : Colors.black87,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        scene.description,
+                        style: TextStyle(
+                          fontSize: 9,
+                          color: Colors.grey[600],
+                        ),
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class LightState {
+  final String name;
+  final String ip;
+  bool isOn;
+  double temp;
+  double dimming;
+  int r;
+  int g;
+  int b;
+  String? error;
+
+  LightState({
+    required this.name,
+    required this.ip,
+    this.isOn = false,
+    this.temp = 4000,
+    this.dimming = 50,
+    this.r = 255,
+    this.g = 255,
+    this.b = 255,
+    this.error,
+  });
+}
+
+class SceneConfig {
+  final String id;
+  final String name;
+  final String description;
+  final IconData icon;
+  final Color color;
+
+  SceneConfig({
+    required this.id,
+    required this.name,
+    required this.description,
+    required this.icon,
+    required this.color,
+  });
 }

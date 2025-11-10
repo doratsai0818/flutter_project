@@ -11,13 +11,13 @@ class EnergySavingSettingsPage extends StatefulWidget {
 
 class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
   // 節能設定選項
-  double? _selectedActivityMet;
-  double? _selectedClothingClo;
+  String? _selectedActivityType;
+  String? _selectedClothingType;
   String? _selectedAirflowSpeed;
 
   // 編輯模式的暫存變數
-  double? _tempSelectedActivityMet;
-  double? _tempSelectedClothingClo;
+  String? _tempSelectedActivityType;
+  String? _tempSelectedClothingType;
   String? _tempSelectedAirflowSpeed;
 
   // 狀態控制
@@ -32,29 +32,30 @@ class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
   static const List<String> _activityOptions = [
     '睡覺', '斜倚', '靜坐', '坐著閱讀', '寫作', '打字',
     '放鬆站立', '坐著歸檔', '站著歸檔', '四處走動', '烹飪',
-    '提舉/打包', '坐著,肢體大量活動', '輕型機械操作', '打掃房屋',
+    '提舉/打包', '坐著，肢體大量活動', '輕型機械操作', '打掃房屋',
     '健美操/徒手體操', '跳舞',
   ];
 
   static const Map<String, double> activityMETs = {
-    '睡覺': 0.7,
-    '斜倚': 0.8,
-    '靜坐': 1.0,
-    '坐著閱讀': 1.0,
-    '寫作': 1.0,
-    '打字': 1.1,
-    '放鬆站立': 1.2,
-    '坐著歸檔': 1.2,
-    '站著歸檔': 1.4,
-    '四處走動': 1.7,
-    '烹飪': 1.8,
-    '提舉/打包': 2.1,
-    '坐著,肢體大量活動': 2.2,
-    '輕型機械操作': 2.2,
-    '打掃房屋': 2.7,
-    '健美操/徒手體操': 3.5,
-    '跳舞': 3.4,
-  };
+  '睡覺': 0.7,
+  '斜倚': 0.8,
+  '靜坐': 1.0,
+  '坐著閱讀': 1.0,
+  '寫作': 1.0,
+  '打字': 1.1,
+  '放鬆站立': 1.2,
+  '坐著歸檔': 1.2,
+  '站著歸檔': 1.4,
+  '四處走動': 1.7,
+  '烹飪': 1.8,
+  '提舉/打包': 2.1,
+  '坐著，肢體大量活動': 2.2,
+  '輕型機械操作': 2.2,
+  '打掃房屋': 2.7,
+  '健美操/徒手體操': 3.5,
+  '跳舞': 3.4,
+};
+
 
   static const List<String> _clothingOptions = [
     '短褲、短袖襯衫', '典型夏季室內服裝', '及膝裙、短袖襯衫、涼鞋、內衣褲',
@@ -64,16 +65,17 @@ class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
   ];
 
   static const Map<String, double> clothingClo = {
-    '短褲、短袖襯衫': 0.36,
-    '典型夏季室內服裝': 0.50,
-    '及膝裙、短袖襯衫、涼鞋、內衣褲': 0.45,
-    '長褲、短袖襯衫、襪子、鞋子、內衣褲': 0.57,
-    '長褲、長袖襯衫': 0.61,
-    '及膝裙、長袖襯衫、連身襯裙': 0.67,
-    '運動長褲、長袖運動衫': 0.74,
-    '夾克、長褲、長袖襯衫': 0.96,
-    '典型冬季室內服裝': 1.00,
-  };
+  '短褲、短袖襯衫': 0.36,
+  '典型夏季室內服裝': 0.50,
+  '及膝裙、短袖襯衫、涼鞋、內衣褲': 0.45,
+  '長褲、短袖襯衫、襪子、鞋子、內衣褲': 0.57,
+  '長褲、長袖襯衫': 0.61,
+  '及膝裙、長袖襯衫、連身襯裙': 0.67,
+  '運動長褲、長袖運動衫': 0.74,
+  '夾克、長褲、長袖襯衫': 0.96,
+  '典型冬季室內服裝': 1.00,
+};
+
 
   static const List<String> _airflowOptions = ['無風扇', '有風扇'];
 
@@ -81,26 +83,6 @@ class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
   void initState() {
     super.initState();
     _fetchEnergySavingSettings();
-  }
-
-  /// 根據 MET 值反查活動名稱
-  String? _getActivityNameByMet(double met) {
-    for (var entry in activityMETs.entries) {
-      if ((entry.value - met).abs() < 0.01) {
-        return entry.key;
-      }
-    }
-    return null;
-  }
-
-  /// 根據 Clo 值反查衣著名稱
-  String? _getClothingNameByClo(double clo) {
-    for (var entry in clothingClo.entries) {
-      if ((entry.value - clo).abs() < 0.01) {
-        return entry.key;
-      }
-    }
-    return null;
   }
 
   /// 從後端獲取節能設定
@@ -115,26 +97,26 @@ class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         setState(() {
-          // 從後端獲取數值
-          _selectedActivityMet = (data['activity_met'] as num).toDouble();
-          _selectedClothingClo = (data['clothing_clo'] as num).toDouble();
+          // 根據資料庫欄位名稱映射
+          _selectedActivityType = data['activity_type'];
+          _selectedClothingType = data['clothing_type'];
           _selectedAirflowSpeed = data['airflow_speed'];
 
           // 同步暫存變數
-          _tempSelectedActivityMet = _selectedActivityMet;
-          _tempSelectedClothingClo = _selectedClothingClo;
+          _tempSelectedActivityType = _selectedActivityType;
+          _tempSelectedClothingType = _selectedClothingType;
           _tempSelectedAirflowSpeed = _selectedAirflowSpeed;
         });
         print('成功獲取節能設定: $data');
       } else if (response.statusCode == 404) {
-        _showErrorSnackBar('找不到節能設定,請檢查帳戶設定');
+        _showErrorSnackBar('找不到節能設定，請檢查帳戶設定');
       } else {
         _showErrorSnackBar('載入節能設定失敗');
         print('獲取節能設定失敗: ${response.statusCode}');
       }
     } catch (e) {
       print('獲取節能設定時發生錯誤: $e');
-      _showErrorSnackBar('網路連線錯誤,請檢查連線狀態');
+      _showErrorSnackBar('網路連線錯誤，請檢查連線狀態');
     } finally {
       setState(() {
         _isLoading = false;
@@ -150,8 +132,8 @@ class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
 
     try {
       final response = await ApiService.post('/energy-saving/settings', {
-        'activityMet': _tempSelectedActivityMet,
-        'clothingClo': _tempSelectedClothingClo,
+        'activityType': _tempSelectedActivityType,
+        'clothingType': _tempSelectedClothingType,
         'airflowSpeed': _tempSelectedAirflowSpeed,
       });
 
@@ -161,8 +143,8 @@ class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
         
         setState(() {
           // 將暫存值同步到正式值
-          _selectedActivityMet = _tempSelectedActivityMet;
-          _selectedClothingClo = _tempSelectedClothingClo;
+          _selectedActivityType = _tempSelectedActivityType;
+          _selectedClothingType = _tempSelectedClothingType;
           _selectedAirflowSpeed = _tempSelectedAirflowSpeed;
           
           // 退出編輯模式並收起所有選單
@@ -170,15 +152,15 @@ class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
           _collapseAllExpansions();
         });
 
-        _showSuccessSnackBar('節能設定已保存!');
+        _showSuccessSnackBar('節能設定已保存！');
       } else {
         final errorData = json.decode(response.body);
-        _showErrorSnackBar('保存失敗:${errorData['message'] ?? '請重試'}');
+        _showErrorSnackBar('保存失敗：${errorData['message'] ?? '請重試'}');
         print('更新節能設定失敗: ${response.statusCode}');
       }
     } catch (e) {
       print('更新節能設定時發生錯誤: $e');
-      _showErrorSnackBar('保存失敗,請檢查網路連接!');
+      _showErrorSnackBar('保存失敗，請檢查網路連接！');
     } finally {
       setState(() {
         _isSaving = false;
@@ -201,8 +183,8 @@ class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
         _updateEnergySavingSettings();
       } else {
         // 進入編輯模式
-        _tempSelectedActivityMet = _selectedActivityMet;
-        _tempSelectedClothingClo = _selectedClothingClo;
+        _tempSelectedActivityType = _selectedActivityType;
+        _tempSelectedClothingType = _selectedClothingType;
         _tempSelectedAirflowSpeed = _selectedAirflowSpeed;
         _isEditing = true;
         print('進入編輯模式');
@@ -226,7 +208,7 @@ class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
       builder: (BuildContext dialogContext) {
         return AlertDialog(
           title: const Text('未保存的更改'),
-          content: const Text('您有未保存的節能設定。是否要放棄更改並返回?'),
+          content: const Text('您有未保存的節能設定。是否要放棄更改並返回？'),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
@@ -255,11 +237,11 @@ class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
     setState(() {
       switch (type) {
         case 'activity':
-          _tempSelectedActivityMet = activityMETs[newValue];
+          _tempSelectedActivityType = newValue;
           _isActivityExpanded = false;
           break;
         case 'clothing':
-          _tempSelectedClothingClo = clothingClo[newValue];
+          _tempSelectedClothingType = newValue;
           _isClothingExpanded = false;
           break;
         case 'airflow':
@@ -323,14 +305,6 @@ class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    // 獲取顯示用的活動和衣著名稱
-    final activityDisplayName = _getActivityNameByMet(
-      _isEditing ? (_tempSelectedActivityMet ?? 0.0) : (_selectedActivityMet ?? 0.0)
-    );
-    final clothingDisplayName = _getClothingNameByClo(
-      _isEditing ? (_tempSelectedClothingClo ?? 0.0) : (_selectedClothingClo ?? 0.0)
-    );
-
     return PopScope(
       canPop: !_isEditing,
       onPopInvoked: (didPop) {
@@ -409,7 +383,7 @@ class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
                             ),
                             const SizedBox(height: 8),
                             Text(
-                              '這些設定將影響系統的智慧節能計算,請根據您的實際情況選擇適合的選項。',
+                              '這些設定將影響系統的智慧節能計算，請根據您的實際情況選擇適合的選項。',
                               style: TextStyle(
                                 fontSize: 14,
                                 color: Colors.blue.shade600,
@@ -465,7 +439,7 @@ class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
                       // 活動類型
                       _buildExpansionTileCard(
                         title: '活動類型',
-                        selectedValue: activityDisplayName,
+                        selectedValue: _isEditing ? _tempSelectedActivityType : _selectedActivityType,
                         isExpanded: _isActivityExpanded,
                         onExpansionChanged: (expanded) => _handleExpansionChanged('activity', expanded),
                         options: _activityOptions,
@@ -477,7 +451,7 @@ class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
                       // 穿著類型
                       _buildExpansionTileCard(
                         title: '穿著類型',
-                        selectedValue: clothingDisplayName,
+                        selectedValue: _isEditing ? _tempSelectedClothingType : _selectedClothingType,
                         isExpanded: _isClothingExpanded,
                         onExpansionChanged: (expanded) => _handleExpansionChanged('clothing', expanded),
                         options: _clothingOptions,
@@ -500,14 +474,10 @@ class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
 
                       // 當前設定總覽
                       if (!_isEditing && 
-                          activityDisplayName != null && 
-                          clothingDisplayName != null && 
+                          _selectedActivityType != null && 
+                          _selectedClothingType != null && 
                           _selectedAirflowSpeed != null)
-                        _buildCurrentSettingsSummary(
-                          activityDisplayName,
-                          clothingDisplayName,
-                          _selectedAirflowSpeed!
-                        ),
+                        _buildCurrentSettingsSummary(),
                     ],
                   ),
                 ),
@@ -517,7 +487,7 @@ class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
   }
 
   /// 建構當前設定總覽
-  Widget _buildCurrentSettingsSummary(String activity, String clothing, String airflow) {
+  Widget _buildCurrentSettingsSummary() {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16.0),
@@ -548,9 +518,9 @@ class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
             ],
           ),
           const SizedBox(height: 12),
-          _buildSummaryItem('活動類型', activity),
-          _buildSummaryItem('穿著類型', clothing),
-          _buildSummaryItem('空氣流速', airflow),
+          _buildSummaryItem('活動類型', _selectedActivityType!),
+          _buildSummaryItem('穿著類型', _selectedClothingType!),
+          _buildSummaryItem('空氣流速', _selectedAirflowSpeed!),
         ],
       ),
     );
@@ -565,7 +535,7 @@ class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
           SizedBox(
             width: 80,
             child: Text(
-              '$label:',
+              '$label：',
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w500,
