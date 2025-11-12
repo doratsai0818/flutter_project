@@ -24,6 +24,10 @@ class _LightingControlPage extends State<LightingControlPage> {
   bool _isManualMode = false;
   Timer? _refreshTimer;
   Timer? _debounceTimer;
+  
+  // ✨ 新增:追蹤是否正在手動控制
+  bool _isManualControlling = false;
+  DateTime? _lastManualControl;
 
   // 情境配置
   final List<SceneConfig> _scenes = [
@@ -57,6 +61,18 @@ class _LightingControlPage extends State<LightingControlPage> {
     ),
   ];
 
+  // 預設色彩選項 
+  final List<ColorOption> _colorPresets = [
+    ColorOption(name: '紅色', r: 255, g: 0, b: 0),
+    ColorOption(name: '橙色', r: 255, g: 165, b: 0),
+    ColorOption(name: '黃色', r: 255, g: 255, b: 0),
+    ColorOption(name: '綠色', r: 0, g: 255, b: 0),
+    ColorOption(name: '青色', r: 0, g: 255, b: 255),
+    ColorOption(name: '藍色', r: 0, g: 0, b: 255),
+    ColorOption(name: '紫色', r: 128, g: 0, b: 128),
+    ColorOption(name: '粉色', r: 255, g: 192, b: 203),
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -78,6 +94,19 @@ class _LightingControlPage extends State<LightingControlPage> {
   }
 
   Future<void> _fetchLightStatus() async {
+    // ✨ 如果正在手動控制,跳過此次更新
+    if (_isManualControlling) {
+      print('⏸️ 手動控制中,跳過狀態更新');
+      return;
+    }
+    
+    // ✨ 如果最近 4 秒內有手動控制,也跳過
+    if (_lastManualControl != null && 
+        DateTime.now().difference(_lastManualControl!) < const Duration(seconds: 4)) {
+      print('⏸️ 手動控制後緩衝期,跳過狀態更新');
+      return;
+    }
+
     try {
       final response = await ApiService.get('/wiz-lights/status');
 
@@ -106,6 +135,9 @@ class _LightingControlPage extends State<LightingControlPage> {
               _lights[i].r = (lightData['r'] ?? 255);
               _lights[i].g = (lightData['g'] ?? 255);
               _lights[i].b = (lightData['b'] ?? 255);
+              
+              // ✨ 讀取燈光模式
+              _lights[i].lightMode = lightData['lightMode'] ?? 'white';
               
               _lights[i].error = lightData['error'];
             }
@@ -137,7 +169,7 @@ class _LightingControlPage extends State<LightingControlPage> {
       final response = await ApiService.post('/wiz-lights/control', body);
 
       if (response.statusCode == 200) {
-        print('燈泡控制成功');
+        print('✅ 燈泡控制成功');
       } else {
         _showErrorSnackBar('控制失敗');
       }
@@ -148,6 +180,10 @@ class _LightingControlPage extends State<LightingControlPage> {
   }
 
   Future<void> _toggleLightPower(int index) async {
+    // 標記為手動控制中
+    _isManualControlling = true;
+    _lastManualControl = DateTime.now();
+    
     try {
       final response = await ApiService.post('/wiz-lights/power', {
         'lightIndex': index,
@@ -162,6 +198,54 @@ class _LightingControlPage extends State<LightingControlPage> {
       }
     } catch (e) {
       _showErrorSnackBar('操作失敗');
+    } finally {
+      // ✨ 操作完成後,延遲 4 秒再允許狀態更新
+      Future.delayed(const Duration(milliseconds: 4000), () {
+        if (mounted) {
+          _isManualControlling = false;
+        }
+      });
+    }
+  }
+
+  // ✨ 新增:模式切換函數
+  Future<void> _switchLightMode(int lightIndex, String newMode) async {
+    _isManualControlling = true;
+    _lastManualControl = DateTime.now();
+    
+    setState(() {
+      _lights[lightIndex].lightMode = newMode;
+    });
+    
+    try {
+      if (newMode == 'white') {
+        // 切換到白光模式:設定 RGB = (255, 255, 255) 並使用預設色溫
+        await _controlLight(lightIndex, temp: 4000, r: 255, g: 255, b: 255);
+        setState(() {
+          _lights[lightIndex].r = 255;
+          _lights[lightIndex].g = 255;
+          _lights[lightIndex].b = 255;
+          _lights[lightIndex].temp = 4000;
+        });
+      } else {
+        // 切換到彩光模式:設定一個預設顏色(紅色)
+        await _controlLight(lightIndex, r: 255, g: 0, b: 0);
+        setState(() {
+          _lights[lightIndex].r = 255;
+          _lights[lightIndex].g = 0;
+          _lights[lightIndex].b = 0;
+        });
+      }
+      
+      _showSuccessSnackBar('已切換至${newMode == 'white' ? '白光' : '彩光'}模式');
+    } catch (e) {
+      _showErrorSnackBar('切換模式失敗');
+    } finally {
+      Future.delayed(const Duration(milliseconds: 4000), () {
+        if (mounted) {
+          _isManualControlling = false;
+        }
+      });
     }
   }
 
@@ -217,16 +301,53 @@ class _LightingControlPage extends State<LightingControlPage> {
     void Function(double) updateState,
   ) {
     return (value) {
+      // 標記為手動控制中
+      _isManualControlling = true;
+      _lastManualControl = DateTime.now();
+      
       updateState(value);
       _debounceTimer?.cancel();
-      _debounceTimer = Timer(const Duration(milliseconds: 500), () {
+      _debounceTimer = Timer(const Duration(milliseconds: 500), () async {
         if (type == 'temp') {
-          _controlLight(lightIndex, temp: value);
+          await _controlLight(lightIndex, temp: value);
         } else if (type == 'dimming') {
-          _controlLight(lightIndex, dimming: value);
+          await _controlLight(lightIndex, dimming: value);
         }
+        
+        // ✨ 指令發送完成後,延遲 4 秒再允許狀態更新
+        Future.delayed(const Duration(milliseconds: 4000), () {
+          if (mounted) {
+            _isManualControlling = false;
+          }
+        });
       });
     };
+  }
+
+  // 設定預設顏色
+  void _setPresetColor(int lightIndex, ColorOption color) {
+    // 標記為手動控制中
+    _isManualControlling = true;
+    _lastManualControl = DateTime.now();
+    
+    setState(() {
+      _lights[lightIndex].r = color.r;
+      _lights[lightIndex].g = color.g;
+      _lights[lightIndex].b = color.b;
+      _lights[lightIndex].lightMode = 'rgb'; // ✨ 自動切換到彩光模式
+    });
+    
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(const Duration(milliseconds: 300), () async {
+      await _controlLight(lightIndex, r: color.r, g: color.g, b: color.b);
+      
+      // ✨ 指令發送完成後,延遲 4 秒再允許狀態更新
+      Future.delayed(const Duration(milliseconds: 4000), () {
+        if (mounted) {
+          _isManualControlling = false;
+        }
+      });
+    });
   }
 
   void _showErrorSnackBar(String message) {
@@ -460,12 +581,13 @@ class _LightingControlPage extends State<LightingControlPage> {
               ),
               const SizedBox(width: 10),
               
-              // 控制滑塊
+              // 控制滑桿
               Expanded(
                 flex: 3,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // 亮度控制
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -498,107 +620,180 @@ class _LightingControlPage extends State<LightingControlPage> {
                       activeColor: sliderActiveColor,
                       inactiveColor: sliderInactiveColor,
                     ),
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          '色溫', 
-                          style: TextStyle(fontSize: 16, color: textColor),
-                        ),
-                        Text(
-                          '${light.temp.round()}K',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            color: textColor,
-                          ),
-                        ),
-                      ],
-                    ),
-                    _buildSlider(
-                      value: light.temp.clamp(2200, 6500),
-                      min: 2200,
-                      max: 6500,
-                      divisions: 43,
-                      onChanged: _isManualMode
-                          ? _createDebouncedHandler(
-                              index,
-                              'temp',
-                              (value) => setState(() => light.temp = value.clamp(2200, 6500)),
-                            )
-                          : null,
-                      activeColor: sliderActiveColor,
-                      inactiveColor: sliderInactiveColor,
-                    ),
                   ],
                 ),
               ),
             ],
           ),
           
-          // RGB 控制區
+          // ✨ 手動模式下的燈光模式選擇和控制
           if (_isManualMode) ...[
             const SizedBox(height: 16),
             const Divider(),
-            const SizedBox(height: 8),
-            Text(
-              'RGB 色彩調整',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-                color: textColor,
-              ),
-            ),
             const SizedBox(height: 12),
-            _buildRGBSlider('紅', light.r.toDouble(), Colors.red, (value) {
-              setState(() => light.r = value.round());
-              _debounceTimer?.cancel();
-              _debounceTimer = Timer(const Duration(milliseconds: 500), () {
-                _controlLight(index, r: light.r, g: light.g, b: light.b);
-              });
-            }),
-            _buildRGBSlider('綠', light.g.toDouble(), Colors.green, (value) {
-              setState(() => light.g = value.round());
-              _debounceTimer?.cancel();
-              _debounceTimer = Timer(const Duration(milliseconds: 500), () {
-                _controlLight(index, r: light.r, g: light.g, b: light.b);
-              });
-            }),
-            _buildRGBSlider('藍', light.b.toDouble(), Colors.blue, (value) {
-              setState(() => light.b = value.round());
-              _debounceTimer?.cancel();
-              _debounceTimer = Timer(const Duration(milliseconds: 500), () {
-                _controlLight(index, r: light.r, g: light.g, b: light.b);
-              });
-            }),
-            const SizedBox(height: 8),
-            Container(
-              height: 40,
-              decoration: BoxDecoration(
-                color: Color.fromRGBO(light.r, light.g, light.b, 1),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.grey[300]!),
-              ),
-              child: const Center(
-                child: Text(
-                  '當前顏色預覽',
+            
+            // 模式選擇器
+            Row(
+              children: [
+                Text(
+                  '燈光模式',
                   style: TextStyle(
-                    color: Colors.white,
+                    fontSize: 14,
                     fontWeight: FontWeight.bold,
-                    shadows: [
-                      Shadow(
-                        offset: Offset(1, 1),
-                        blurRadius: 3,
-                        color: Colors.black,
-                      ),
-                    ],
+                    color: textColor,
                   ),
                 ),
-              ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: SegmentedButton<String>(
+                    segments: const [
+                      ButtonSegment(
+                        value: 'white',
+                        label: Text('白光', style: TextStyle(fontSize: 12)),
+                        icon: Icon(Icons.wb_sunny, size: 16),
+                      ),
+                      ButtonSegment(
+                        value: 'rgb',
+                        label: Text('彩光', style: TextStyle(fontSize: 12)),
+                        icon: Icon(Icons.palette, size: 16),
+                      ),
+                    ],
+                    selected: {light.lightMode},
+                    onSelectionChanged: (Set<String> newSelection) {
+                      _switchLightMode(index, newSelection.first);
+                    },
+                    style: ButtonStyle(
+                      backgroundColor: MaterialStateProperty.resolveWith((states) {
+                        if (states.contains(MaterialState.selected)) {
+                          return Theme.of(context).primaryColor.withOpacity(0.2);
+                        }
+                        return Colors.grey[100];
+                      }),
+                      foregroundColor: MaterialStateProperty.resolveWith((states) {
+                        if (states.contains(MaterialState.selected)) {
+                          return Theme.of(context).primaryColor;
+                        }
+                        return Colors.grey[600];
+                      }),
+                    ),
+                  ),
+                ),
+              ],
             ),
+            const SizedBox(height: 16),
+            
+            // 根據模式顯示對應控制
+            if (light.lightMode == 'white') ...[
+              // 白光模式:顯示色溫控制
+              Text(
+                '色溫調整',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: textColor,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.wb_sunny, size: 14, color: Colors.orange),
+                      const SizedBox(width: 4),
+                      Text('暖光', style: TextStyle(fontSize: 12, color: Colors.orange)),
+                    ],
+                  ),
+                  Text(
+                    '${light.temp.round()}K',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      Text('冷光', style: TextStyle(fontSize: 12, color: Colors.blue[700])),
+                      const SizedBox(width: 4),
+                      Icon(Icons.ac_unit, size: 14, color: Colors.blue[700]),
+                    ],
+                  ),
+                ],
+              ),
+              _buildSlider(
+                value: light.temp.clamp(2200, 6500),
+                min: 2200,
+                max: 6500,
+                divisions: 43,
+                onChanged: _createDebouncedHandler(
+                  index,
+                  'temp',
+                  (value) => setState(() => light.temp = value.clamp(2200, 6500)),
+                ),
+                activeColor: sliderActiveColor,
+                inactiveColor: sliderInactiveColor,
+              ),
+            ] else ...[
+              // 彩光模式:顯示 RGB 色彩選擇器
+              Text(
+                'RGB 色彩選擇',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: textColor,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: _colorPresets.map((colorOption) {
+                  final isSelected = light.r == colorOption.r && 
+                                     light.g == colorOption.g && 
+                                     light.b == colorOption.b;
+                  
+                  return GestureDetector(
+                    onTap: () => _setPresetColor(index, colorOption),
+                    child: Container(
+                      width: 50,
+                      height: 50,
+                      decoration: BoxDecoration(
+                        color: Color.fromRGBO(colorOption.r, colorOption.g, colorOption.b, 1),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: isSelected ? Colors.blue : Colors.grey[300]!,
+                          width: isSelected ? 3 : 1,
+                        ),
+                        boxShadow: isSelected ? [
+                          BoxShadow(
+                            color: Colors.blue.withOpacity(0.3),
+                            blurRadius: 8,
+                            spreadRadius: 2,
+                          ),
+                        ] : null,
+                      ),
+                      child: isSelected
+                          ? const Icon(
+                              Icons.check,
+                              color: Colors.white,
+                              size: 24,
+                              shadows: [
+                                Shadow(
+                                  offset: Offset(1, 1),
+                                  blurRadius: 3,
+                                  color: Colors.black,
+                                ),
+                              ],
+                            )
+                          : null,
+                    ),
+                  );
+                }).toList(),
+              ),
+            ],
           ],
           
+          // 自動模式提示
           if (!_isManualMode) ...[
             const SizedBox(height: 12),
             Container(
@@ -628,6 +823,8 @@ class _LightingControlPage extends State<LightingControlPage> {
               ),
             ),
           ],
+          
+          // 錯誤訊息
           if (light.error != null) ...[
             const SizedBox(height: 12),
             Container(
@@ -640,57 +837,16 @@ class _LightingControlPage extends State<LightingControlPage> {
                 children: [
                   Icon(Icons.error_outline, color: Colors.red[700], size: 16),
                   const SizedBox(width: 8),
-                  Text(
-                    light.error!,
-                    style: TextStyle(color: Colors.red[700], fontSize: 12),
+                  Expanded(
+                    child: Text(
+                      light.error!,
+                      style: TextStyle(color: Colors.red[700], fontSize: 12),
+                    ),
                   ),
                 ],
               ),
             ),
           ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRGBSlider(String label, double value, Color color, ValueChanged<double> onChanged) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 30,
-            child: Text(
-              label,
-              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
-            ),
-          ),
-          Expanded(
-            child: SliderTheme(
-              data: SliderTheme.of(context).copyWith(
-                trackHeight: 3,
-                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.0),
-                activeTrackColor: color,
-                inactiveTrackColor: color.withOpacity(0.3),
-                thumbColor: color,
-              ),
-              child: Slider(
-                value: value,
-                min: 0,
-                max: 255,
-                divisions: 255,
-                onChanged: onChanged,
-              ),
-            ),
-          ),
-          SizedBox(
-            width: 35,
-            child: Text(
-              '${value.round()}',
-              style: const TextStyle(fontSize: 12),
-              textAlign: TextAlign.right,
-            ),
-          ),
         ],
       ),
     );
@@ -816,6 +972,7 @@ class _LightingControlPage extends State<LightingControlPage> {
   }
 }
 
+// ✨ 修改 LightState 類別,新增 lightMode 屬性
 class LightState {
   final String name;
   final String ip;
@@ -826,6 +983,7 @@ class LightState {
   int g;
   int b;
   String? error;
+  String lightMode; // ✨ 新增:記錄當前模式 ('white' 或 'rgb')
 
   LightState({
     required this.name,
@@ -837,6 +995,7 @@ class LightState {
     this.g = 255,
     this.b = 255,
     this.error,
+    this.lightMode = 'white', // ✨ 預設為白光模式
   });
 }
 
@@ -853,5 +1012,19 @@ class SceneConfig {
     required this.description,
     required this.icon,
     required this.color,
+  });
+}
+
+class ColorOption {
+  final String name;
+  final int r;
+  final int g;
+  final int b;
+
+  ColorOption({
+    required this.name,
+    required this.r,
+    required this.g,
+    required this.b,
   });
 }
