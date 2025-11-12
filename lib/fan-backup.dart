@@ -19,9 +19,9 @@ class _FanControlPageState extends State<FanControlPage> {
 
   // 風扇狀態變數
   bool _isFanOn = false;
-  // 【新增】自動/手動模式,預設為手動
+  // 【新增】自動/手動模式，預設為手動
   bool _isManualMode = true; 
-  // 風速現在代表 1-8 級,0 代表關閉
+  // 風速現在代表 1-8 級，0 代表關閉
   int _fanSpeed = 0; 
   // 左右擺頭
   bool _isOscillationOn = false; 
@@ -44,7 +44,7 @@ class _FanControlPageState extends State<FanControlPage> {
   void initState() {
     super.initState();
     _fetchFanStatus();
-    // 設定定時器,每隔5秒更新狀態
+    // 設定定時器，每隔5秒更新狀態
     _statusTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
       _fetchFanStatus();
     });
@@ -92,12 +92,12 @@ class _FanControlPageState extends State<FanControlPage> {
       } else if (response.statusCode == 401) {
         setState(() {
           _hasError = true;
-          _errorMessage = '認證失效,請重新登入';
+          _errorMessage = '認證失效，請重新登入';
         });
       } else if (response.statusCode == 403) {
         setState(() {
           _hasError = true;
-          _errorMessage = '權限不足,無法控制風扇';
+          _errorMessage = '權限不足，無法控制風扇';
         });
       } else {
         debugPrint('獲取風扇狀態失敗: ${response.statusCode} ${response.body}');
@@ -110,14 +110,14 @@ class _FanControlPageState extends State<FanControlPage> {
       debugPrint('無法獲取風扇狀態: $e');
       setState(() {
         _hasError = true;
-        _errorMessage = '網路連線失敗,請檢查伺服器狀態';
+        _errorMessage = '網路連線失敗，請檢查伺服器狀態';
       });
     }
   }
 
-  // 發送控制指令 (核心方法) - 使用紅外線 API
+  // 發送控制指令 (核心方法)
   Future<void> _sendControlCommand(String endpoint, Map<String, dynamic> body) async {
-    // 檢查是否為模式或風速控制,且不在手動模式
+    // 檢查是否為模式或風速控制，且不在手動模式
     if (endpoint == 'speed' || endpoint == 'mode') {
       if (!_isManualMode) {
         _showSnackBar('請先切換到手動模式才能調整風速或模式', isError: true);
@@ -127,119 +127,36 @@ class _FanControlPageState extends State<FanControlPage> {
 
     setState(() => _isLoading = true);
     try {
-      // 映射前端指令到紅外線控制動作
-      String irAction = _mapEndpointToIRAction(endpoint, body);
-      
-      // 發送紅外線控制指令
       final response = await http.post(
-        Uri.parse('$_baseUrl/aircon'),
+        Uri.parse('$_baseUrl/fan/$endpoint'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer ${widget.jwtToken}',
         },
-        body: jsonEncode({
-          'device': 'fan',
-          'action': irAction
-        }),
+        body: jsonEncode(body),
       );
-      
       if (response.statusCode == 200) {
-        final responseData = jsonDecode(response.body);
-        if (responseData['success'] == true) {
-          // 更新本地狀態
-          await _updateLocalState(endpoint, body);
-          await _fetchFanStatus();
-          _showSnackBar('操作成功');
-        } else {
-          _showSnackBar(responseData['message'] ?? '控制失敗', isError: true);
-        }
+        await _fetchFanStatus();
+        _showSnackBar('操作成功');
       } else if (response.statusCode == 401) {
-        _showSnackBar('認證失效,請重新登入', isError: true);
+        _showSnackBar('認證失效，請重新登入', isError: true);
       } else if (response.statusCode == 403) {
-        _showSnackBar('權限不足,無法控制風扇', isError: true);
+        _showSnackBar('權限不足，無法控制風扇', isError: true);
       } else {
         final responseData = jsonDecode(response.body);
         _showSnackBar(responseData['message'] ?? '控制失敗', isError: true);
       }
     } catch (e) {
       debugPrint('發送控制指令失敗: $e');
-      _showSnackBar('網路連線失敗,請檢查伺服器狀態', isError: true);
+      _showSnackBar('網路連線失敗，請檢查伺服器狀態', isError: true);
     } finally {
       setState(() => _isLoading = false);
     }
   }
   
-  // 映射前端指令到紅外線動作
-  String _mapEndpointToIRAction(String endpoint, Map<String, dynamic> body) {
-    switch (endpoint) {
-      case 'power':
-        return 'power'; // fan_power
-      case 'speed':
-        // 根據當前風速決定是增加還是減少
-        int targetSpeed = body['speed'] ?? 1;
-        return targetSpeed > _fanSpeed ? 'speed_up' : 'speed_down';
-      case 'oscillation':
-        return 'swing_horizontal'; // fan_swing_horizontal
-      case 'verticalSwing':
-        return 'swing_vertical'; // fan_swing_vertical
-      case 'mode':
-        return 'mode'; // fan_mode
-      case 'mute':
-        return 'voice'; // fan_voice (靜音/提示音)
-      case 'display':
-        return 'light'; // fan_light (顯示燈)
-      case 'timer':
-        return 'timer'; // fan_timer
-      default:
-        return 'power';
-    }
-  }
-  
-  // 更新本地狀態(用於 UI 同步)
-  Future<void> _updateLocalState(String endpoint, Map<String, dynamic> body) async {
-    setState(() {
-      switch (endpoint) {
-        case 'power':
-          _isFanOn = body['isOn'] ?? false;
-          if (!_isFanOn) _fanSpeed = 0;
-          break;
-        case 'speed':
-          _fanSpeed = body['speed'] ?? 0;
-          if (_fanSpeed > 0) _isFanOn = true;
-          break;
-        case 'oscillation':
-          _isOscillationOn = body['oscillation'] ?? false;
-          break;
-        case 'verticalSwing':
-          _isVerticalSwingOn = body['verticalSwing'] ?? false;
-          break;
-        case 'mode':
-          _currentMode = body['mode'] ?? 'normal';
-          break;
-        case 'mute':
-          _isMuteOn = body['isMuteOn'] ?? false;
-          break;
-        case 'display':
-          _isDisplayOn = body['isDisplayOn'] ?? true;
-          break;
-        case 'timer':
-          _timerMinutes = body['minutes'] ?? 0;
-          break;
-      }
-    });
-  }
-  
   // 【新增】更新手動/自動模式
   Future<void> _updateManualMode(bool value) async {
     try {
-      // 注意:紅外線風扇通常沒有自動模式的 IR 指令
-      // 這裡只更新前端狀態,實際的自動控制邏輯需要在後端實現
-      
-      setState(() {
-        _isManualMode = value;
-      });
-      
-      // 可選:如果後端有對應的 API,可以同步狀態
       final response = await http.post(
         Uri.parse('$_baseUrl/fan/manual-mode'),
         headers: {
@@ -250,23 +167,16 @@ class _FanControlPageState extends State<FanControlPage> {
       );
       
       if (response.statusCode == 200) {
+        // 切換成功後，強制獲取最新狀態，讓後端設定的自動模式生效
         await _fetchFanStatus(); 
         _showSnackBar(value ? '已切換到手動模式' : '已切換到自動模式');
       } else {
         final responseData = jsonDecode(response.body);
         _showSnackBar(responseData['message'] ?? '更新模式失敗', isError: true);
-        // 恢復原狀態
-        setState(() {
-          _isManualMode = !value;
-        });
       }
     } catch (e) {
       debugPrint('更新模式失敗: $e');
       _showSnackBar('網路連線錯誤', isError: true);
-      // 恢復原狀態
-      setState(() {
-        _isManualMode = !value;
-      });
     }
   }
 
@@ -324,21 +234,17 @@ class _FanControlPageState extends State<FanControlPage> {
     );
   }
   
-  // 風速增減控制邏輯 - 支援 1-8 級
-  void _changeSpeed(bool isIncrement) async {
+  // 風速增減控制邏輯
+  void _changeSpeed(bool isIncrement) {
     if (!_isManualMode) {
       _showSnackBar('請先切換到手動模式才能調整風速', isError: true);
       return;
     }
     
-    // 如果風扇關閉,切換風速應先開啟並設定為 1 級
+    // 如果風扇關閉，切換風速應先開啟並設定為 1 級
     if (!_isFanOn) {
-      await _sendControlCommand('power', {'isOn': true});
-      await Future.delayed(const Duration(milliseconds: 500));
-      setState(() {
-        _isFanOn = true;
-        _fanSpeed = 1;
-      });
+      _sendControlCommand('power', {'isOn': true});
+      _sendControlCommand('speed', {'speed': 1});
       return;
     }
 
@@ -351,32 +257,7 @@ class _FanControlPageState extends State<FanControlPage> {
 
     // 只有在風速發生變化時才發送指令
     if (newSpeed != _fanSpeed) {
-      // 計算需要發送的次數(從當前風速調整到目標風速)
-      int steps = (newSpeed - _fanSpeed).abs();
-      
-      setState(() => _isLoading = true);
-      
-      try {
-        for (int i = 0; i < steps; i++) {
-          await _sendControlCommand('speed', {'speed': isIncrement ? _fanSpeed + 1 : _fanSpeed - 1});
-          await Future.delayed(const Duration(milliseconds: 800)); // 每次指令間隔 800ms
-          
-          // 更新當前風速
-          setState(() {
-            if (isIncrement) {
-              _fanSpeed++;
-            } else {
-              _fanSpeed--;
-            }
-          });
-        }
-        _showSnackBar('風速已調整至 $_fanSpeed 級');
-      } catch (e) {
-        debugPrint('調整風速失敗: $e');
-        _showSnackBar('風速調整失敗', isError: true);
-      } finally {
-        setState(() => _isLoading = false);
-      }
+      _sendControlCommand('speed', {'speed': newSpeed});
     }
   }
   
@@ -413,7 +294,7 @@ class _FanControlPageState extends State<FanControlPage> {
 
   @override
   Widget build(BuildContext context) {
-    // 【修改】將 Theme.of(context).primaryColor 改為使用 Colors.blue,因為這個檔案沒有 Theme 資訊
+    // 【修改】將 Theme.of(context).primaryColor 改為使用 Colors.blue，因為這個檔案沒有 Theme 資訊
     final primaryColor = Colors.blue; 
 
     return Scaffold(
@@ -475,24 +356,24 @@ class _FanControlPageState extends State<FanControlPage> {
                         children: [
                           Text(
                             _isFanOn ?
-                            '風扇狀態:開啟' : '風扇狀態:關閉',
+                            '風扇狀態：開啟' : '風扇狀態：關閉',
                             style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: _isFanOn ? primaryColor : Colors.red),
                           ),
                           const SizedBox(height: 10),
                           // 【新增】模式狀態提示
                           Text(
-                            _isManualMode ? '當前模式:手動' : '當前模式:自動 (一般風)',
+                            _isManualMode ? '當前模式：手動' : '當前模式：自動 (一般風)',
                             style: TextStyle(fontSize: 16, color: _isManualMode ? Colors.black87 : Colors.orange),
                           ),
                           const SizedBox(height: 10),
                           Text(
-                            '當前風速:${_isFanOn ? _fanSpeed : 0} 級 (Max 8)',
+                            '當前風速：${_isFanOn ? _fanSpeed : 0} 級 (Max 8)',
                             style: const TextStyle(fontSize: 18),
                           ),
                           if (_timerMinutes > 0) ...[
                             const SizedBox(height: 5),
                             Text(
-                              '定時關機:${_timerMinutes} 分鐘',
+                              '定時關機：${_timerMinutes} 分鐘',
                               style: const TextStyle(fontSize: 14, color: Colors.orange),
                             ),
                           ],
@@ -595,7 +476,7 @@ class _FanControlPageState extends State<FanControlPage> {
                           const Text('擺頭、定時與顯示', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                           const SizedBox(height: 10),
 
-                          // 功能按鈕:左右擺頭、上下擺頭、靜音、顯示、定時
+                          // 功能按鈕：左右擺頭、上下擺頭、靜音、顯示、定時
                           SingleChildScrollView(
                             scrollDirection: Axis.horizontal,
                             child: Row(
@@ -667,15 +548,14 @@ class _FanControlPageState extends State<FanControlPage> {
                           // 模式控制 (風類)
                           const Text('風類切換', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                           const SizedBox(height: 10),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            alignment: WrapAlignment.center,
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceAround,
                             children: [
                               _buildModeButton('normal', '一般風'),
                               _buildModeButton('natural', '自然風'),
                               _buildModeButton('sleep', '舒眠風'),
-                              _buildModeButton('eco', 'ECO 溫控'),
+                              // 新增 ECO 模式
+                              _buildModeButton('eco', 'ECO 溫控'), 
                             ],
                           ),
                         ],
