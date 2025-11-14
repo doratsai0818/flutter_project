@@ -64,6 +64,7 @@ class _FanControlPageState extends State<FanControlPage> {
         Uri.parse('$_baseUrl/fan/status'),
         headers: {
           'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
           'Authorization': 'Bearer ${widget.jwtToken}',
         },
       );
@@ -136,6 +137,7 @@ class _FanControlPageState extends State<FanControlPage> {
         Uri.parse('$_baseUrl/aircon'),
         headers: {
           'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
           'Authorization': 'Bearer ${widget.jwtToken}',
         },
         body: jsonEncode({
@@ -245,6 +247,7 @@ class _FanControlPageState extends State<FanControlPage> {
         Uri.parse('$_baseUrl/fan/manual-mode'),
         headers: {
           'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
           'Authorization': 'Bearer ${widget.jwtToken}',
         },
         body: jsonEncode({'isManualMode': value}),

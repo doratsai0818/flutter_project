@@ -126,6 +126,7 @@ class _SensorDataPageState extends State<SensorDataPage> {
 
     try {
       final headers = await SensorTokenService.getAuthHeaders();
+      headers['ngrok-skip-browser-warning'] = 'true';
       final response = await http.get(
         Uri.parse('$_baseUrl/sensors/realtime'),
         headers: headers,

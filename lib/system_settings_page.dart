@@ -65,6 +65,7 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
 
     try {
       final headers = await _getAuthHeaders();
+      headers['ngrok-skip-browser-warning'] = 'true';
       final response = await http.get(
         Uri.parse('$_baseUrl/system/settings'),
         headers: headers,
@@ -162,6 +163,7 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
 
     try {
       final headers = await _getAuthHeaders();
+      headers['ngrok-skip-browser-warning'] = 'true';
       final Map<String, dynamic> updateData = {
         'isDarkMode': _isDarkMode,
         'selectedLanguage': _selectedLanguage,

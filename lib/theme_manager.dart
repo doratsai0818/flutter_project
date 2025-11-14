@@ -27,7 +27,10 @@ class ThemeManager with ChangeNotifier {
     notifyListeners(); // 通知監聽器開始載入
 
     try {
-      final response = await http.get(Uri.parse('$_baseUrl/system/settings'));
+      final response = await http.get(
+        Uri.parse('$_baseUrl/system/settings'),
+        headers: {'ngrok-skip-browser-warning': 'true'},
+      );
       
       if (response.statusCode == 200) {
         final Map<String, dynamic> data = json.decode(response.body);
@@ -59,7 +62,10 @@ class ThemeManager with ChangeNotifier {
     try {
       final response = await http.post(
         Uri.parse('$_baseUrl/system/settings'),
-        headers: {'Content-Type': 'application/json'},
+        headers: {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+        },
         body: json.encode({'isDarkMode': isDarkModeForBackend}),
       );
 

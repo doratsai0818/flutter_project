@@ -80,6 +80,7 @@ class _ACControlPageState extends State<ACControlPage> {
         Uri.parse('$_baseUrl/ac/status'),
         headers: {
           'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
           'Authorization': 'Bearer $_jwtToken',
         },
       );
@@ -113,6 +114,7 @@ class _ACControlPageState extends State<ACControlPage> {
         Uri.parse('$_baseUrl/temp-humidity/status'),
         headers: {
           'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
           'Authorization': 'Bearer $_jwtToken',
         },
       );
@@ -146,6 +148,7 @@ class _ACControlPageState extends State<ACControlPage> {
         Uri.parse('$_baseUrl/aircon'),
         headers: {
           'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
           'Authorization': 'Bearer $_jwtToken',
         },
         body: jsonEncode({
@@ -183,6 +186,7 @@ class _ACControlPageState extends State<ACControlPage> {
         Uri.parse('$_baseUrl/ac/manual-mode'),
         headers: {
           'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
           'Authorization': 'Bearer $_jwtToken',
         },
         body: jsonEncode({'isManualMode': value}),

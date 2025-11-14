@@ -48,6 +48,7 @@ class _NotificationHistoryPageState extends State<NotificationHistoryPage> {
 
     try {
       final headers = await _getAuthHeaders();
+      headers['ngrok-skip-browser-warning'] = 'true';
       final response = await http.get(
         Uri.parse('$_baseUrl/notifications/history'),
         headers: headers,

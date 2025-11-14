@@ -25,6 +25,7 @@ class ApiService {
     final token = await TokenService.getToken();
     return {
       'Content-Type': 'application/json',
+      'ngrok-skip-browser-warning': 'true',
       if (token != null) 'Authorization': 'Bearer $token',
     };
   }
