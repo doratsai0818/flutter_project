@@ -15,7 +15,7 @@ class LightingControlPage extends StatefulWidget {
 class _LightingControlPage extends State<LightingControlPage> {
   // 燈泡狀態
   List<LightState> _lights = [
-    LightState(name: '燈泡fang', ip: '192.168.1.108'),
+    LightState(name: '燈泡fang', ip: '192.168.1.110'),
     LightState(name: '燈泡yaa', ip: '192.168.1.109'),
   ];
 

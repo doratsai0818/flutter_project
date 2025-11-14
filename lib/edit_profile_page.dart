@@ -1,30 +1,29 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
-
-// 匯入 main.dart 中的服務類別
 import 'package:iot_project/main.dart';
 
 class EditProfilePage extends StatefulWidget {
   final String name;
   final String email;
+  final String userId;
 
   const EditProfilePage({
-    super.key,
+    Key? key,
     required this.name,
     required this.email,
-  });
+    required this.userId,
+  }) : super(key: key);
 
   @override
   State<EditProfilePage> createState() => _EditProfilePageState();
 }
 
 class _EditProfilePageState extends State<EditProfilePage> {
-  // Controllers for input fields
+  // Controllers
   late TextEditingController _nameController;
   late TextEditingController _emailController;
-  final TextEditingController _passwordController = TextEditingController();
 
-  // State management
+  // State
   bool _isEditing = false;
   bool _isLoading = false;
   bool _hasUnsavedChanges = false;
@@ -37,9 +36,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
     super.initState();
     _nameController = TextEditingController(text: widget.name);
     _emailController = TextEditingController(text: widget.email);
-    _passwordController.text = '******';
     
-    // 監聽輸入變化
     _nameController.addListener(_onTextChanged);
     _emailController.addListener(_onTextChanged);
   }
@@ -50,14 +47,12 @@ class _EditProfilePageState extends State<EditProfilePage> {
     _emailController.removeListener(_onTextChanged);
     _nameController.dispose();
     _emailController.dispose();
-    _passwordController.dispose();
     super.dispose();
   }
 
-  /// 監聽文字變化
   void _onTextChanged() {
-    final hasChanges = _nameController.text != widget.name || 
-                      _emailController.text != widget.email;
+    final hasChanges = _nameController.text.trim() != widget.name || 
+                      _emailController.text.trim() != widget.email;
     
     if (hasChanges != _hasUnsavedChanges) {
       setState(() {
@@ -66,7 +61,6 @@ class _EditProfilePageState extends State<EditProfilePage> {
     }
   }
 
-  /// 使用 JWT token 發送更新用戶資料到後端
   Future<void> _updateUserProfile() async {
     if (!_formKey.currentState!.validate()) {
       return;
@@ -77,7 +71,6 @@ class _EditProfilePageState extends State<EditProfilePage> {
     });
 
     try {
-      // 使用 ApiService 發送帶有 JWT token 的請求
       final response = await ApiService.post('/user/profile', {
         'name': _nameController.text.trim(),
         'email': _emailController.text.trim(),
@@ -85,37 +78,44 @@ class _EditProfilePageState extends State<EditProfilePage> {
 
       if (response.statusCode == 200) {
         final responseData = json.decode(response.body);
-        print('成功更新個人資料: $responseData');
         
-        _showSnackBar('個人資料已成功更新！', isError: false);
-        
-        setState(() {
-          _isEditing = false;
-          _hasUnsavedChanges = false;
-        });
-        
-        // 返回 true 告知上一頁資料已更新
-        Navigator.pop(context, true);
+        if (responseData['success'] == true) {
+          _showSnackBar('個人資料已成功更新!', isError: false);
+          
+          setState(() {
+            _isEditing = false;
+            _hasUnsavedChanges = false;
+          });
+          
+          Navigator.pop(context, {
+            'updated': true,
+            'name': responseData['data']['name'],
+            'email': responseData['data']['email'],
+          });
+        } else {
+          _showSnackBar(responseData['message'] ?? '更新失敗', isError: true);
+        }
         
       } else if (response.statusCode == 401) {
-        // Token 過期
-        _showSnackBar('登入已過期，請重新登入', isError: true);
+        _showSnackBar('登入已過期,請重新登入', isError: true);
         await _handleTokenExpired();
         
       } else if (response.statusCode == 409) {
-        // 電子郵件已存在
         final errorData = json.decode(response.body);
         _showSnackBar(errorData['message'] ?? '此電子郵件已被使用', isError: true);
         
+      } else if (response.statusCode == 400) {
+        final errorData = json.decode(response.body);
+        _showSnackBar(errorData['message'] ?? '輸入格式錯誤', isError: true);
+        
       } else {
         final errorData = json.decode(response.body);
-        print('更新個人資料失敗: ${response.statusCode} - ${response.body}');
-        _showSnackBar(errorData['message'] ?? '更新失敗，請重試', isError: true);
+        _showSnackBar(errorData['message'] ?? '更新失敗,請重試', isError: true);
       }
       
     } catch (e) {
       print('更新個人資料時發生錯誤: $e');
-      _showSnackBar('網路連線錯誤，請檢查伺服器狀態', isError: true);
+      _showSnackBar('網路連線錯誤,請檢查伺服器狀態', isError: true);
     } finally {
       if (mounted) {
         setState(() {
@@ -125,7 +125,6 @@ class _EditProfilePageState extends State<EditProfilePage> {
     }
   }
 
-  /// 處理 Token 過期
   Future<void> _handleTokenExpired() async {
     await TokenService.clearAuthData();
     if (mounted) {
@@ -133,7 +132,6 @@ class _EditProfilePageState extends State<EditProfilePage> {
     }
   }
 
-  /// 顯示訊息
   void _showSnackBar(String message, {bool isError = false}) {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -141,35 +139,31 @@ class _EditProfilePageState extends State<EditProfilePage> {
           content: Text(message),
           backgroundColor: isError ? Colors.red : Colors.green,
           duration: const Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating,
         ),
       );
     }
   }
 
-  /// 切換編輯模式
   void _toggleEditMode() {
     if (_isLoading) return;
 
     if (_isEditing) {
-      // 保存模式
       _updateUserProfile();
     } else {
-      // 進入編輯模式
       setState(() {
         _isEditing = true;
       });
-      print('進入編輯模式，可以修改個人資料');
     }
   }
 
-  /// 顯示未保存變更對話框
   void _showUnsavedChangesDialog() {
     showDialog(
       context: context,
       builder: (BuildContext dialogContext) {
         return AlertDialog(
-          title: const Text('放棄修改？'),
-          content: const Text('您有未保存的更改，確定要離開嗎？'),
+          title: const Text('放棄修改?'),
+          content: const Text('您有未保存的更改,確定要離開嗎?'),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
@@ -192,27 +186,159 @@ class _EditProfilePageState extends State<EditProfilePage> {
     );
   }
 
-  /// 重置到原始值
   void _resetToOriginalValues() {
     _nameController.text = widget.name;
     _emailController.text = widget.email;
-    _passwordController.text = '******';
     setState(() {
       _isEditing = false;
       _hasUnsavedChanges = false;
     });
   }
 
-  /// 處理返回按鈕
   void _handleBackButtonPressed() {
     if (_isEditing && _hasUnsavedChanges) {
       _showUnsavedChangesDialog();
     } else {
-      Navigator.pop(context, false);
+      Navigator.pop(context, {'updated': false});
     }
   }
 
-  /// Email 驗證
+  void _showChangePasswordDialog() {
+    final currentPasswordController = TextEditingController();
+    final newPasswordController = TextEditingController();
+    final confirmPasswordController = TextEditingController();
+    bool obscureCurrent = true;
+    bool obscureNew = true;
+    bool obscureConfirm = true;
+
+    showDialog(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('修改密碼'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: currentPasswordController,
+                      obscureText: obscureCurrent,
+                      decoration: InputDecoration(
+                        labelText: '當前密碼',
+                        suffixIcon: IconButton(
+                          icon: Icon(obscureCurrent ? Icons.visibility : Icons.visibility_off),
+                          onPressed: () {
+                            setDialogState(() {
+                              obscureCurrent = !obscureCurrent;
+                            });
+                          },
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: newPasswordController,
+                      obscureText: obscureNew,
+                      decoration: InputDecoration(
+                        labelText: '新密碼',
+                        suffixIcon: IconButton(
+                          icon: Icon(obscureNew ? Icons.visibility : Icons.visibility_off),
+                          onPressed: () {
+                            setDialogState(() {
+                              obscureNew = !obscureNew;
+                            });
+                          },
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: confirmPasswordController,
+                      obscureText: obscureConfirm,
+                      decoration: InputDecoration(
+                        labelText: '確認新密碼',
+                        suffixIcon: IconButton(
+                          icon: Icon(obscureConfirm ? Icons.visibility : Icons.visibility_off),
+                          onPressed: () {
+                            setDialogState(() {
+                              obscureConfirm = !obscureConfirm;
+                            });
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('取消'),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    if (newPasswordController.text != confirmPasswordController.text) {
+                      _showSnackBar('新密碼與確認密碼不符', isError: true);
+                      return;
+                    }
+                    
+                    if (newPasswordController.text.length < 6) {
+                      _showSnackBar('密碼至少需要6個字元', isError: true);
+                      return;
+                    }
+
+                    Navigator.of(dialogContext).pop();
+                    await _changePassword(
+                      currentPasswordController.text,
+                      newPasswordController.text,
+                    );
+                  },
+                  child: const Text('確認修改'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _changePassword(String currentPassword, String newPassword) async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final response = await ApiService.post('/user/change-password', {
+        'currentPassword': currentPassword,
+        'newPassword': newPassword,
+      });
+
+      if (response.statusCode == 200) {
+        final responseData = json.decode(response.body);
+        if (responseData['success'] == true) {
+          _showSnackBar('密碼已成功更新!', isError: false);
+        }
+      } else if (response.statusCode == 401) {
+        final errorData = json.decode(response.body);
+        _showSnackBar(errorData['message'] ?? '當前密碼不正確', isError: true);
+      } else {
+        final errorData = json.decode(response.body);
+        _showSnackBar(errorData['message'] ?? '密碼修改失敗', isError: true);
+      }
+    } catch (e) {
+      _showSnackBar('網路連線錯誤', isError: true);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
   String? _validateEmail(String? value) {
     if (value == null || value.trim().isEmpty) {
       return '請輸入電子郵件';
@@ -223,7 +349,6 @@ class _EditProfilePageState extends State<EditProfilePage> {
     return null;
   }
 
-  /// 姓名驗證
   String? _validateName(String? value) {
     if (value == null || value.trim().isEmpty) {
       return '請輸入姓名';
@@ -277,7 +402,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
                     const SizedBox(height: 16),
                     _buildEmailField(),
                     const SizedBox(height: 16),
-                    _buildPasswordField(),
+                    _buildPasswordSection(),
                     const SizedBox(height: 32),
                     _buildActionButton(),
                     const SizedBox(height: 20),
@@ -319,7 +444,10 @@ class _EditProfilePageState extends State<EditProfilePage> {
           CircleAvatar(
             radius: 60,
             backgroundColor: Theme.of(context).primaryColor.withOpacity(0.1),
-            child: const Icon(Icons.person, size: 60, color: Colors.grey),
+            child: Text(
+              widget.name.isNotEmpty ? widget.name[0].toUpperCase() : '?',
+              style: const TextStyle(fontSize: 40, fontWeight: FontWeight.bold),
+            ),
           ),
           if (_isEditing)
             Positioned(
@@ -333,7 +461,6 @@ class _EditProfilePageState extends State<EditProfilePage> {
                 child: IconButton(
                   icon: const Icon(Icons.camera_alt, color: Colors.white, size: 20),
                   onPressed: () {
-                    // 未來可以實作頭像更換功能
                     _showSnackBar('頭像更換功能即將推出');
                   },
                 ),
@@ -366,21 +493,35 @@ class _EditProfilePageState extends State<EditProfilePage> {
     );
   }
 
-  Widget _buildPasswordField() {
-    return _buildProfileInputField(
-      label: '密碼',
-      controller: _passwordController,
-      obscureText: true,
-      keyboardType: TextInputType.visiblePassword,
-      readOnly: true,
-      prefixIcon: Icons.lock,
-      suffixWidget: TextButton(
-        onPressed: () {
-          // 未來可以實作密碼修改功能
-          _showSnackBar('密碼修改功能即將推出');
-        },
-        child: const Text('修改'),
-      ),
+  Widget _buildPasswordSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          '密碼',
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: Colors.grey[200],
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.lock),
+              const SizedBox(width: 12),
+              const Text('••••••••'),
+              const Spacer(),
+              TextButton(
+                onPressed: _showChangePasswordDialog,
+                child: const Text('修改'),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -455,7 +596,6 @@ class _EditProfilePageState extends State<EditProfilePage> {
     bool readOnly = false,
     String? Function(String?)? validator,
     IconData? prefixIcon,
-    Widget? suffixWidget,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -477,7 +617,6 @@ class _EditProfilePageState extends State<EditProfilePage> {
           ),
           decoration: InputDecoration(
             prefixIcon: prefixIcon != null ? Icon(prefixIcon) : null,
-            suffix: suffixWidget,
             filled: true,
             fillColor: readOnly
                 ? Colors.grey[200]

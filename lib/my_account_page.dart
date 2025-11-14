@@ -1,15 +1,19 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
 
-import 'package:iot_project/system_settings_page.dart';
 import 'package:iot_project/notification_settings_page.dart';
 import 'package:iot_project/edit_profile_page.dart';
 import 'package:iot_project/main.dart';
 
 class MyAccountPage extends StatefulWidget {
   final VoidCallback onLogout;
+  final VoidCallback? onProfileUpdated; // ✅ 新增回調函數
 
-  const MyAccountPage({super.key, required this.onLogout});
+  const MyAccountPage({
+    super.key, 
+    required this.onLogout,
+    this.onProfileUpdated, // ✅ 可選參數
+  });
 
   @override
   State<MyAccountPage> createState() => _MyAccountPageState();
@@ -18,6 +22,7 @@ class MyAccountPage extends StatefulWidget {
 class _MyAccountPageState extends State<MyAccountPage> {
   String _userName = '載入中...';
   String _userEmail = '載入中...';
+  String _userId = '';
   bool _isLoading = false;
 
   @override
@@ -26,7 +31,7 @@ class _MyAccountPageState extends State<MyAccountPage> {
     _fetchUserProfile();
   }
 
-  /// 從後端獲取用戶資料（使用 JWT token）
+  /// 從後端獲取用戶資料(使用 JWT token)
   Future<void> _fetchUserProfile() async {
     if (_isLoading) return;
     
@@ -35,21 +40,39 @@ class _MyAccountPageState extends State<MyAccountPage> {
     });
 
     try {
-      // 使用 ApiService 發送帶有 JWT token 的請求
       final response = await ApiService.get('/user/profile');
       
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        if (mounted) {
-          setState(() {
-            _userName = data['name'] ?? '未設定';
-            _userEmail = data['email'] ?? '未設定';
-          });
+        
+        if (data['success'] == true && data['data'] != null) {
+          if (mounted) {
+            setState(() {
+              _userId = data['data']['user_id'] ?? '';
+              _userName = data['data']['name'] ?? '未設定';
+              _userEmail = data['data']['email'] ?? '未設定';
+            });
+            
+            // ✅ 同步更新 SharedPreferences 中的用戶資料
+            await TokenService.saveAuthData(
+              token: await TokenService.getToken() ?? '',
+              userId: _userId,
+              userName: _userName,
+              userEmail: _userEmail,
+            );
+          }
+          print('成功獲取用戶資料: ${data['data']}');
+        } else {
+          if (mounted) {
+            setState(() {
+              _userName = data['name'] ?? '未設定';
+              _userEmail = data['email'] ?? '未設定';
+            });
+          }
+          print('成功獲取用戶資料: $data');
         }
-        print('成功獲取用戶資料: $data');
       } else if (response.statusCode == 401) {
-        // Token 失效，需要重新登入
-        _showSnackBar('登入已過期，請重新登入', isError: true);
+        _showSnackBar('登入已過期,請重新登入', isError: true);
         await _handleTokenExpired();
       } else if (response.statusCode == 404) {
         _showSnackBar('找不到用戶資料', isError: true);
@@ -73,7 +96,7 @@ class _MyAccountPageState extends State<MyAccountPage> {
     } catch (e) {
       print('獲取用戶資料時發生錯誤: $e');
       if (mounted) {
-        _showSnackBar('網路連線錯誤，請檢查伺服器狀態', isError: true);
+        _showSnackBar('網路連線錯誤,請檢查伺服器狀態', isError: true);
         setState(() {
           _userName = '載入錯誤';
           _userEmail = '載入錯誤';
@@ -116,7 +139,7 @@ class _MyAccountPageState extends State<MyAccountPage> {
       builder: (BuildContext dialogContext) {
         return AlertDialog(
           title: const Text('確認登出'),
-          content: const Text('您確定要登出帳戶嗎？'),
+          content: const Text('您確定要登出帳戶嗎?'),
           actions: <Widget>[
             TextButton(
               onPressed: () {
@@ -128,14 +151,12 @@ class _MyAccountPageState extends State<MyAccountPage> {
               onPressed: () async {
                 Navigator.of(dialogContext).pop();
                 
-                // 呼叫後端登出 API
                 try {
                   await ApiService.post('/auth/logout', {});
                 } catch (e) {
                   print('登出 API 呼叫失敗: $e');
                 }
                 
-                // 清除本地 token 並執行登出回調
                 await TokenService.clearAuthData();
                 widget.onLogout();
               },
@@ -153,6 +174,11 @@ class _MyAccountPageState extends State<MyAccountPage> {
   /// 重新整理用戶資料
   Future<void> _refreshUserProfile() async {
     await _fetchUserProfile();
+    
+    // ✅ 通知 MainScreen 更新側邊欄
+    if (widget.onProfileUpdated != null) {
+      widget.onProfileUpdated!();
+    }
   }
 
   @override
@@ -193,10 +219,14 @@ class _MyAccountPageState extends State<MyAccountPage> {
                           backgroundColor: Colors.grey[200],
                           child: _isLoading
                               ? const CircularProgressIndicator()
-                              : Icon(
-                                  Icons.person,
-                                  size: 60,
-                                  color: Colors.grey[600],
+                              : Text(
+                                  _userName.isNotEmpty && _userName != '載入中...' 
+                                      ? _userName[0].toUpperCase()
+                                      : '?',
+                                  style: const TextStyle(
+                                    fontSize: 40,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                 ),
                         ),
                         if (_isLoading)
@@ -253,19 +283,6 @@ class _MyAccountPageState extends State<MyAccountPage> {
               // 設定選項列表
               _buildSettingsItem(
                 context,
-                title: '系統設定',
-                icon: Icons.settings,
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const SystemSettingsPage(),
-                    ),
-                  );
-                },
-              ),
-              _buildSettingsItem(
-                context,
                 title: '通知設定',
                 icon: Icons.notifications,
                 onTap: () {
@@ -287,20 +304,30 @@ class _MyAccountPageState extends State<MyAccountPage> {
                     return;
                   }
 
+                  if (_userId.isEmpty) {
+                    _showSnackBar('無法獲取用戶 ID,請重新整理頁面', isError: true);
+                    return;
+                  }
+
                   final result = await Navigator.push(
                     context,
                     MaterialPageRoute(
                       builder: (context) => EditProfilePage(
                         name: _userName,
                         email: _userEmail,
+                        userId: _userId,
                       ),
                     ),
                   );
 
-                  // 如果編輯成功，重新獲取用戶資料
-                  if (result == true) {
-                    _showSnackBar('帳戶資料更新成功');
-                    await _fetchUserProfile();
+                  // 如果編輯成功,重新獲取用戶資料
+                  if (result != null && result is Map) {
+                    if (result['updated'] == true) {
+                      _showSnackBar('帳戶資料更新成功');
+                      
+                      // 重新獲取最新資料
+                      await _refreshUserProfile();
+                    }
                   }
                 },
               ),

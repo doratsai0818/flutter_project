@@ -3,7 +3,6 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:iot_project/main.dart'; // 引入 main.dart 以使用 ApiService
-import 'dart:async';
 
 class HomePage extends StatefulWidget {
     const HomePage({super.key});
@@ -13,6 +12,9 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
+    // 一鍵切換
+    String _selectedToggleMode = '...';
+    
     // 概況總覽數據
     String _totalPowerToday = '...';
     String _currentTemperature = '...';
@@ -38,51 +40,58 @@ class _HomePageState extends State<HomePage> {
         });
         
         try {
-            // ✅ 使用 Future.wait 並行請求所有 API,大幅減少等待時間
-            // ✅ 增加 10 秒超時保護
-            final results = await Future.wait([
-                ApiService.get('/power-total-today'),
-                ApiService.get('/temp-humidity/status'),
-                ApiService.get('/ac/status'),
-                ApiService.get('/fan/status'),
-            ], eagerError: false).timeout(
-                const Duration(seconds: 10),
-                onTimeout: () => throw TimeoutException('請求超時', const Duration(seconds: 10))
-            );
+            // 使用 ApiService 獲取一鍵切換模式
+            final toggleResponse = await ApiService.get('/toggle-mode');
+            if (toggleResponse.statusCode == 200) {
+                final mode = json.decode(toggleResponse.body)['mode'];
+                setState(() {
+                    _selectedToggleMode = mode ?? '...';
+                });
+            } else {
+                print('獲取切換模式失敗: ${toggleResponse.statusCode}');
+            }
 
-            // 處理今日累積用電量
-            if (results[0].statusCode == 200) {
-                final data = json.decode(results[0].body);
+            // 獲取今日累積用電量
+            final powerResponse = await ApiService.get('/power-total-today');
+            if (powerResponse.statusCode == 200) {
+                final data = json.decode(powerResponse.body);
                 setState(() {
                     _totalPowerToday = data['total_kwh']?.toString() ?? '0.0';
                 });
+            } else {
+                print('獲取用電量失敗: ${powerResponse.statusCode}');
             }
 
-            // 處理目前環境溫溼度
-            if (results[1].statusCode == 200) {
-                final data = json.decode(results[1].body);
+            // 獲取目前環境溫溼度
+            final tempHumidityResponse = await ApiService.get('/temp-humidity/status');
+            if (tempHumidityResponse.statusCode == 200) {
+                final data = json.decode(tempHumidityResponse.body);
                 if (data['success'] == true && data['data'] != null) {
                     setState(() {
                         _currentTemperature = data['data']['temperature_c']?.toString() ?? '...';
                         _currentHumidity = data['data']['humidity_percent']?.toString() ?? '...';
                     });
                 }
+            } else {
+                print('獲取溫溼度失敗: ${tempHumidityResponse.statusCode}');
             }
 
-            // 處理冷氣設置溫度
-            if (results[2].statusCode == 200) {
-                final data = json.decode(results[2].body);
-                if (data['success'] == true && data['data'] != null) {
-                    final temp = data['data']['current_set_temp'];
-                    setState(() {
-                        _acSetTemp = temp != null ? '${temp}°C' : '(未設置)';
-                    });
-                }
+            // 獲取冷氣設置溫度
+            final acResponse = await ApiService.get('/ac/status');
+            if (acResponse.statusCode == 200) {
+                final data = json.decode(acResponse.body);
+                final temp = data['current_set_temp'];
+                setState(() {
+                    _acSetTemp = temp != null ? '${temp}°C' : '(未設置)';
+                });
+            } else {
+                print('獲取冷氣設置失敗: ${acResponse.statusCode}');
             }
 
-            // 處理風扇設置檔數
-            if (results[3].statusCode == 200) {
-                final data = json.decode(results[3].body);
+            // 獲取風扇設置檔數
+            final fanResponse = await ApiService.get('/fan/status');
+            if (fanResponse.statusCode == 200) {
+                final data = json.decode(fanResponse.body);
                 if (data['success'] == true && data['data'] != null) {
                     final isOn = data['data']['isOn'] ?? false;
                     final speed = data['data']['speed'] ?? 0;
@@ -94,190 +103,56 @@ class _HomePageState extends State<HomePage> {
                         }
                     });
                 }
+            } else {
+                print('獲取風扇狀態失敗: ${fanResponse.statusCode}');
             }
 
-            // ✅ 立即顯示概況數據,不等待裝置列表
-            setState(() {
-                _isLoading = false;
-            });
-
-            // ✅ 背景載入裝置列表,不阻塞 UI
-            _fetchDevices();
-
-        } on TimeoutException catch (e) {
-            print('Request timeout: $e');
-            setState(() {
-                _isLoading = false;
-            });
-            _showErrorSnackBar('請求超時,請檢查網路連線');
+            // 使用 ApiService 獲取裝置列表
+            final devicesResponse = await ApiService.get('/devices');
+            if (devicesResponse.statusCode == 200) {
+                final List<dynamic> data = json.decode(devicesResponse.body);
+                setState(() {
+                    _devices = data.map((item) => {
+                        'imagePath': 'assets/${item['id']}.png',
+                        'title': item['name'] ?? '未知裝置',
+                        'status': item['status'] ?? '未知狀態',
+                    }).toList();
+                });
+            } else {
+                print('獲取裝置列表失敗: ${devicesResponse.statusCode}');
+                setState(() {
+                    _devices = []; // 設置為空列表以避免顯示問題
+                });
+            }
         } catch (e) {
             print('Error fetching data: $e');
-            // ✅ 即使失敗也結束載入狀態
+            _showErrorSnackBar('載入資料失敗,請檢查網路連線');
+        } finally {
             setState(() {
                 _isLoading = false;
             });
-            _showErrorSnackBar('載入資料失敗: ${e.toString()}');
         }
     }
 
-    Future<void> _fetchDevices() async {
-    try {
-        print('\n========== 開始載入裝置列表 ==========');
-        List<Map<String, dynamic>> devicesList = [];
-
-        // ==================== 1. 溫溼度感測器 (逐一請求) ====================
-        print('\n[1/3] 正在請求溫溼度感測器...');
+    Future<void> _updateToggleMode(String newMode) async {
         try {
-            final tempResponse = await ApiService.get('/temp-humidity/status')
-                .timeout(const Duration(seconds: 5));
-            
-            print('溫溼度感測器 HTTP 狀態碼: ${tempResponse.statusCode}');
-            
-            if (tempResponse.statusCode == 200) {
-                final data = json.decode(tempResponse.body);
-                print('溫溼度感測器回應: $data');
-                
-                if (data['success'] == true && data['data'] != null) {
-                    print('✅ 溫溼度感測器符合條件');
-                    devicesList.add({
-                        'id': 'temp_sensor',
-                        'name': '溫溼度感測器',
-                        'type': 'sensor',
-                        'status': '線上',
-                        'icon': Icons.sensors,
-                        'color': Colors.green,
-                    });
-                } else {
-                    print('⚠️ 溫溼度感測器不符合條件 (success=${data['success']}, data=${data['data']})');
-                }
+            final response = await ApiService.post('/toggle-mode', {'mode': newMode});
+
+            if (response.statusCode == 200) {
+                setState(() {
+                    _selectedToggleMode = newMode;
+                });
+                _showSuccessSnackBar('切換模式已更新為:$newMode');
             } else {
-                print('❌ 溫溼度感測器請求失敗: HTTP ${tempResponse.statusCode}');
+                final responseBody = json.decode(response.body);
+                print('Failed to update toggle mode: ${responseBody['message']}');
+                _showErrorSnackBar('更新切換模式失敗');
             }
         } catch (e) {
-            print('❌ 溫溼度感測器請求異常: $e');
-        }
-
-        // ==================== 2. Tuya 插座 (逐一請求) ====================
-        print('\n[2/3] 正在請求 Tuya 插座...');
-        try {
-            final plugResponse = await ApiService.get('/tuya-plugs/status')
-                .timeout(const Duration(seconds: 5));
-            
-            print('Tuya 插座 HTTP 狀態碼: ${plugResponse.statusCode}');
-            
-            if (plugResponse.statusCode == 200) {
-                final data = json.decode(plugResponse.body);
-                print('Tuya 插座回應: $data');
-                
-                if (data['success'] == true && data['data'] != null) {
-                    final List<dynamic> plugs = data['data'];
-                    print('插座總數: ${plugs.length}');
-                    
-                    for (int i = 0; i < plugs.length; i++) {
-                        final plug = plugs[i];
-                        final isConnected = plug['connected'] ?? false;
-                        
-                        print('  插座 ${i + 1}: ${plug['name']} - connected: $isConnected');
-                        
-                        if (isConnected) {
-                            print('  ✅ 已連接,新增到列表');
-                            devicesList.add({
-                                'id': 'plug_${i + 1}',
-                                'name': plug['name'] ?? '插座${i + 1}',
-                                'type': 'plug',
-                                'status': '線上',
-                                'icon': Icons.power,
-                                'color': Colors.green,
-                            });
-                        } else {
-                            print('  ⚠️ 未連接,跳過');
-                        }
-                    }
-                } else {
-                    print('⚠️ Tuya 插座不符合條件 (success=${data['success']}, data=${data['data']})');
-                }
-            } else {
-                print('❌ Tuya 插座請求失敗: HTTP ${plugResponse.statusCode}');
-            }
-        } catch (e) {
-            print('❌ Tuya 插座請求異常: $e');
-        }
-
-        // ==================== 3. WIZ 燈泡 (逐一請求) ====================
-        print('\n[3/3] 正在請求 WIZ 燈泡...');
-        try {
-            final lightResponse = await ApiService.get('/wiz-lights/status')
-                .timeout(const Duration(seconds: 10)); // WIZ 可能需要更長時間
-            
-            print('WIZ 燈泡 HTTP 狀態碼: ${lightResponse.statusCode}');
-            
-            if (lightResponse.statusCode == 200) {
-                final data = json.decode(lightResponse.body);
-                print('WIZ 燈泡回應: $data');
-                
-                if (data['success'] == true && data['lights'] != null) {
-                    final List<dynamic> lights = data['lights'];
-                    print('燈泡總數: ${lights.length}');
-                    
-                    for (int i = 0; i < lights.length; i++) {
-                        final light = lights[i];
-                        final hasError = light['error'] != null;
-                        final isOn = light['isOn'] ?? false;
-                        
-                        print('  燈泡 ${i + 1}: ${light['name']} - isOn: $isOn, hasError: $hasError');
-                        
-                        if (!hasError) {
-                            print('  ✅ 無錯誤,新增到列表');
-                            devicesList.add({
-                                'id': 'light_${i + 1}',
-                                'name': light['name'] ?? '燈泡${i + 1}',
-                                'type': 'light',
-                                'status': isOn ? '開啟' : '關閉',
-                                'icon': Icons.lightbulb,
-                                'color': isOn ? Colors.amber : Colors.grey,
-                            });
-                        } else {
-                            print('  ⚠️ 有錯誤: ${light['error']},跳過');
-                        }
-                    }
-                } else {
-                    print('⚠️ WIZ 燈泡不符合條件 (success=${data['success']}, lights=${data['lights']})');
-                }
-            } else {
-                print('❌ WIZ 燈泡請求失敗: HTTP ${lightResponse.statusCode}');
-            }
-        } catch (e) {
-            print('❌ WIZ 燈泡請求異常: $e');
-        }
-
-        // ==================== 結果 ====================
-        print('\n========== 裝置載入完成 ==========');
-        print('總共找到 ${devicesList.length} 個裝置');
-        for (var device in devicesList) {
-            print('  - ${device['name']} (${device['type']}) - ${device['status']}');
-        }
-        print('====================================\n');
-
-        // 更新 UI
-        if (mounted) {
-            setState(() {
-                _devices = devicesList;
-            });
-        }
-
-    } catch (e) {
-        print('❌ 載入裝置時發生嚴重錯誤: $e');
-        print('錯誤類型: ${e.runtimeType}');
-        print('Stack trace: ${StackTrace.current}');
-        
-        if (mounted) {
-            setState(() {
-                _devices = [];
-            });
-            _showErrorSnackBar('載入裝置失敗: ${e.toString()}');
+            print('Error updating toggle mode: $e');
+            _showErrorSnackBar('網路連線錯誤,請稍後再試');
         }
     }
-}
 
     void _showErrorSnackBar(String message) {
         if (mounted) {
@@ -286,6 +161,18 @@ class _HomePageState extends State<HomePage> {
                     content: Text(message),
                     backgroundColor: Colors.red,
                     duration: const Duration(seconds: 3),
+                ),
+            );
+        }
+    }
+
+    void _showSuccessSnackBar(String message) {
+        if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                    content: Text(message),
+                    backgroundColor: Colors.green,
+                    duration: const Duration(seconds: 2),
                 ),
             );
         }
@@ -310,6 +197,41 @@ class _HomePageState extends State<HomePage> {
                     : Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                            // 一鍵切換區域
+                            const Text(
+                                '一鍵切換',
+                                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 16),
+                            Container(
+                                padding: const EdgeInsets.all(4.0),
+                                decoration: BoxDecoration(
+                                    color: Colors.grey[200],
+                                    borderRadius: BorderRadius.circular(30),
+                                ),
+                                child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                        _buildToggleButton(
+                                            text: '智慧節能',
+                                            isSelected: _selectedToggleMode == '智慧節能',
+                                            onTap: () => _updateToggleMode('智慧節能'),
+                                        ),
+                                        _buildToggleButton(
+                                            text: '手動設定',
+                                            isSelected: _selectedToggleMode == '手動設定',
+                                            onTap: () => _updateToggleMode('手動設定'),
+                                        ),
+                                        _buildToggleButton(
+                                            text: '我的偏好',
+                                            isSelected: _selectedToggleMode == '我的偏好',
+                                            onTap: () => _updateToggleMode('我的偏好'),
+                                        ),
+                                    ],
+                                ),
+                            ),
+                            const SizedBox(height: 32),
+
                             // 概況總覽區域
                             const Text(
                                 '概況總覽',
@@ -495,10 +417,9 @@ class _HomePageState extends State<HomePage> {
                                     runSpacing: 16.0,
                                     children: _devices.map((device) {
                                         return _buildDeviceCard(
-                                            icon: device['icon'] as IconData,
-                                            title: device['name'] as String,
+                                            imagePath: device['imagePath'] as String,
+                                            title: device['title'] as String,
                                             status: device['status'] as String,
-                                            color: device['color'] as Color,
                                         );
                                     }).toList(),
                                 ),
@@ -547,7 +468,7 @@ class _HomePageState extends State<HomePage> {
                     ),
                     SizedBox(height: 16),
                     Text(
-                        '目前沒有連線裝置',
+                        '目前沒有裝置',
                         style: TextStyle(
                             fontSize: 18,
                             color: Colors.grey,
@@ -556,13 +477,63 @@ class _HomePageState extends State<HomePage> {
                     ),
                     SizedBox(height: 8),
                     Text(
-                        '請確認裝置連線狀態',
+                        '請添加智慧裝置以開始使用',
                         style: TextStyle(
                             fontSize: 14,
                             color: Colors.grey,
                         ),
                     ),
                 ],
+            ),
+        );
+    }
+
+    Widget _buildToggleButton({
+        required String text,
+        required bool isSelected,
+        required VoidCallback onTap,
+    }) {
+        IconData icon = Icons.star;
+        Color selectedColor = Theme.of(context).primaryColor;
+
+        if (text == '智慧節能') {
+            icon = Icons.bolt;
+            selectedColor = Colors.green;
+        } else if (text == '手動設定') {
+            icon = Icons.build;
+            selectedColor = Colors.orange;
+        } else if (text == '我的偏好') {
+            icon = Icons.favorite;
+            selectedColor = Colors.blue;
+        }
+
+        return GestureDetector(
+            onTap: onTap,
+            child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                decoration: BoxDecoration(
+                    color: isSelected
+                        ? selectedColor.withOpacity(0.2)
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(30),
+                ),
+                child: Row(
+                    children: [
+                        Icon(
+                            icon,
+                            color: isSelected ? selectedColor : Colors.black54,
+                            size: 20,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                            text,
+                            style: TextStyle(
+                                color: isSelected ? selectedColor : Colors.black54,
+                                fontWeight: FontWeight.bold,
+                            ),
+                        ),
+                    ],
+                ),
             ),
         );
     }
@@ -597,10 +568,9 @@ class _HomePageState extends State<HomePage> {
     }
 
     Widget _buildDeviceCard({
-        required IconData icon,
+        required String imagePath,
         required String title,
         required String status,
-        required Color color,
     }) {
         final double deviceCardWidth = (MediaQuery.of(context).size.width - 32 - 16) / 2;
         final double deviceCardHeight = 180.0;
@@ -624,10 +594,11 @@ class _HomePageState extends State<HomePage> {
             child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
+                    // 使用 Icon 替代 Image.asset 以避免資源文件問題
                     Icon(
-                        icon,
+                        _getDeviceIcon(title),
                         size: 60,
-                        color: color,
+                        color: _getDeviceColor(status),
                     ),
                     const SizedBox(height: 10),
                     Text(
@@ -652,11 +623,35 @@ class _HomePageState extends State<HomePage> {
         );
     }
 
-    Color _getStatusColor(String status) {
-        if (status.contains('開啟') || status.contains('線上')) {
+    IconData _getDeviceIcon(String deviceName) {
+        if (deviceName.contains('冷氣') || deviceName.contains('AC')) {
+            return Icons.ac_unit;
+        } else if (deviceName.contains('燈') || deviceName.contains('Light')) {
+            return Icons.lightbulb;
+        } else if (deviceName.contains('插座') || deviceName.contains('Socket')) {
+            return Icons.power;
+        } else if (deviceName.contains('感測器') || deviceName.contains('Sensor')) {
+            return Icons.sensors;
+        } else {
+            return Icons.device_unknown;
+        }
+    }
+
+    Color _getDeviceColor(String status) {
+        if (status.contains('開啟') || status.contains('Online')) {
             return Colors.green;
-        } else if (status.contains('關閉')) {
+        } else if (status.contains('關閉') || status.contains('Offline')) {
             return Colors.grey;
+        } else {
+            return Colors.blue;
+        }
+    }
+
+    Color _getStatusColor(String status) {
+        if (status.contains('開啟') || status.contains('Online')) {
+            return Colors.green;
+        } else if (status.contains('關閉') || status.contains('Offline')) {
+            return Colors.red;
         } else {
             return Colors.black54;
         }

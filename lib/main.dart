@@ -6,7 +6,6 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:iot_project/config.dart';
 
-// 確保這些匯入路徑是正確的
 import 'package:iot_project/home_page.dart';
 import 'package:iot_project/lighting_control_page.dart';
 import 'package:iot_project/ac_control_page.dart';
@@ -14,9 +13,7 @@ import 'package:iot_project/power_monitoring_page.dart';
 import 'package:iot_project/my_account_page.dart';
 import 'package:iot_project/fan_control_page.dart';
 import 'package:iot_project/sensor_data_page.dart';
-import 'package:iot_project/energy_saving_settings_page.dart'; // 新增匯入
-
-// 從 `lib/config.dart` 統一讀取後端網址
+import 'package:iot_project/energy_saving_settings_page.dart';
 
 void main() {
   runApp(const MyApp());
@@ -205,12 +202,10 @@ class _AuthPageState extends State<AuthPage> {
   bool isRegistering = false;
   bool _isLoading = false;
 
-  // 登入表單控制器
   final _loginEmailController = TextEditingController();
   final _loginPasswordController = TextEditingController();
   final _loginFormKey = GlobalKey<FormState>();
 
-  // 註冊表單控制器
   final _registerNameController = TextEditingController();
   final _registerEmailController = TextEditingController();
   final _registerPasswordController = TextEditingController();
@@ -546,13 +541,14 @@ class _MainScreenState extends State<MainScreen> {
           const PowerMonitoringPage(),
           FanControlPage(jwtToken: token),
           const SensorDataPage(),
-          const EnergySavingSettingsPage(), // 新增節能設定頁面
+          const EnergySavingSettingsPage(),
         ];
         _isLoadingPages = false;
       });
     }
   }
 
+  // ✅ 新增：重新載入用戶資料的方法
   Future<void> _loadUserData() async {
     final userData = await TokenService.getUserData();
     if (mounted) {
@@ -578,7 +574,7 @@ class _MainScreenState extends State<MainScreen> {
       case 5:
         return '感測數據監控';
       case 6:
-        return '節能設定'; // 新增標題
+        return '節能設定';
       default:
         return '智慧節能系統';
     }
@@ -592,13 +588,23 @@ class _MainScreenState extends State<MainScreen> {
     Navigator.pop(context);
   }
 
+  // ✅ 修改：傳入 onProfileUpdated 回調
   void _navigateToMyAccount() {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => MyAccountPage(onLogout: widget.onLogout),
+        builder: (context) => MyAccountPage(
+          onLogout: widget.onLogout,
+          onProfileUpdated: () {
+            // ✅ 當個人資料更新時，重新載入用戶資料
+            _loadUserData();
+          },
+        ),
       ),
-    );
+    ).then((_) {
+      // ✅ 從個人資料頁面返回時也重新載入
+      _loadUserData();
+    });
   }
 
   void _showLogoutDialog() {
@@ -697,12 +703,11 @@ class _MainScreenState extends State<MainScreen> {
               onTap: () => _onDrawerItemTapped(4),
             ),
             ListTile(
-              leading: const Icon(Icons.sensors),
-              title: const Text('感測數據監控'),
+              leading: const Icon(Icons.offline_bolt),
+              title: const Text('省電效能展示'),
               selected: _selectedIndex == 5,
               onTap: () => _onDrawerItemTapped(5),
             ),
-            // 新增節能設定選項
             ListTile(
               leading: const Icon(Icons.eco),
               title: const Text('節能設定'),
