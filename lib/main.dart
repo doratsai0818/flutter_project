@@ -13,6 +13,7 @@ import 'package:iot_project/power_monitoring_page.dart';
 import 'package:iot_project/my_account_page.dart';
 import 'package:iot_project/fan_control_page.dart';
 import 'package:iot_project/sensor_data_page.dart';
+import 'package:iot_project/energy_saving_settings_page.dart'; // 新增匯入
 
 const String baseUrl = 'http://localhost:3000/api';
 
@@ -247,11 +248,10 @@ class _AuthPageState extends State<AuthPage> {
       });
 
       if (response.statusCode == 201) {
-        _showSnackBar('註冊成功！現在可以登入了。');
+        _showSnackBar('註冊成功!現在可以登入了。');
         if (mounted) {
           setState(() {
             isRegistering = false;
-            // 清空註冊表單
             _registerNameController.clear();
             _registerEmailController.clear();
             _registerPasswordController.clear();
@@ -262,7 +262,7 @@ class _AuthPageState extends State<AuthPage> {
         _showSnackBar(responseBody['message'] ?? '註冊失敗', isError: true);
       }
     } catch (e) {
-      _showSnackBar('連線失敗，請檢查伺服器是否運行。', isError: true);
+      _showSnackBar('連線失敗,請檢查伺服器是否運行。', isError: true);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -282,7 +282,6 @@ class _AuthPageState extends State<AuthPage> {
       if (response.statusCode == 200) {
         final responseBody = json.decode(response.body);
         
-        // 保存認證資料
         await TokenService.saveAuthData(
           token: responseBody['token'] ?? '',
           userId: responseBody['user']['id'] ?? '',
@@ -290,14 +289,14 @@ class _AuthPageState extends State<AuthPage> {
           userEmail: responseBody['user']['email'] ?? '',
         );
 
-        _showSnackBar('登入成功！歡迎回來。');
+        _showSnackBar('登入成功!歡迎回來。');
         widget.onLoginSuccess();
       } else {
         final responseBody = json.decode(response.body);
         _showSnackBar(responseBody['message'] ?? '登入失敗', isError: true);
       }
     } catch (e) {
-      _showSnackBar('連線失敗，請檢查伺服器是否運行。', isError: true);
+      _showSnackBar('連線失敗,請檢查伺服器是否運行。', isError: true);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -406,7 +405,7 @@ class _AuthPageState extends State<AuthPage> {
                 });
               }
             },
-            child: const Text('沒有帳號？點此註冊'),
+            child: const Text('沒有帳號?點此註冊'),
           ),
         ],
       ),
@@ -501,7 +500,7 @@ class _AuthPageState extends State<AuthPage> {
                 });
               }
             },
-            child: const Text('已經有帳號？點此登入'),
+            child: const Text('已經有帳號?點此登入'),
           ),
         ],
       ),
@@ -520,16 +519,15 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   int _selectedIndex = 0;
   Map<String, String?> _userData = {};
-  List<Widget>? _pages; // 將 _pages 設為可為 null
+  List<Widget>? _pages;
   bool _isLoadingPages = true;
 
   @override
   void initState() {
     super.initState();
-    _loadAllData(); // 建立一個方法來載入所有非同步資料
+    _loadAllData();
   }
   
-  // 處理所有非同步資料載入
   Future<void> _loadAllData() async {
     await _loadUserData();
     await _initPages();
@@ -542,12 +540,13 @@ class _MainScreenState extends State<MainScreen> {
         _pages = <Widget>[
           const HomePage(),
           const LightingControlPage(),
-          const ACControlPage(),
+          ACControlPage(jwtToken: token!),
           const PowerMonitoringPage(),
-          FanControlPage(jwtToken: token!),
+          FanControlPage(jwtToken: token),
           const SensorDataPage(),
+          const EnergySavingSettingsPage(), // 新增節能設定頁面
         ];
-        _isLoadingPages = false; // 頁面載入完成
+        _isLoadingPages = false;
       });
     }
   }
@@ -563,19 +562,21 @@ class _MainScreenState extends State<MainScreen> {
 
   String _getPageTitle(int index) {
     if (_pages == null || index >= _pages!.length) return '智慧節能系統';
-    switch (_pages![index].runtimeType) {
-      case HomePage:
+    switch (index) {
+      case 0:
         return '首頁';
-      case LightingControlPage:
+      case 1:
         return '燈光控制';
-      case ACControlPage:
+      case 2:
         return '冷氣控制';
-      case PowerMonitoringPage:
+      case 3:
         return '用電監控';
-      case FanControlPage:
+      case 4:
         return '風扇控制';
-      case SensorDataPage:
+      case 5:
         return '感測數據監控';
+      case 6:
+        return '節能設定'; // 新增標題
       default:
         return '智慧節能系統';
     }
@@ -604,7 +605,7 @@ class _MainScreenState extends State<MainScreen> {
       builder: (BuildContext context) {
         return AlertDialog(
           title: const Text('確認登出'),
-          content: const Text('您確定要登出嗎？'),
+          content: const Text('您確定要登出嗎?'),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
@@ -698,6 +699,13 @@ class _MainScreenState extends State<MainScreen> {
               title: const Text('感測數據監控'),
               selected: _selectedIndex == 5,
               onTap: () => _onDrawerItemTapped(5),
+            ),
+            // 新增節能設定選項
+            ListTile(
+              leading: const Icon(Icons.eco),
+              title: const Text('節能設定'),
+              selected: _selectedIndex == 6,
+              onTap: () => _onDrawerItemTapped(6),
             ),
             const Divider(),
             ListTile(

@@ -287,7 +287,7 @@ class _FanControlPageState extends State<FanControlPage> {
     bool isSelected = _isFanOn && _currentMode == mode;
     bool isDisabled = !_isManualMode;
     return ElevatedButton(
-      onPressed: isDisabled || _isLoading ? null : () => _sendControlCommand('mode', {'mode': mode}),
+      onPressed: isDisabled ? null : () => _sendControlCommand('mode', {'mode': mode}),
       style: ElevatedButton.styleFrom(
         foregroundColor: isSelected ? Colors.white : (isDisabled ? Colors.grey : Colors.black),
         backgroundColor: isSelected ? Colors.blue : Colors.blueGrey, 
@@ -309,7 +309,7 @@ class _FanControlPageState extends State<FanControlPage> {
     return Column(
       children: [
         IconButton(
-          onPressed: _isLoading ? null : onPressed,
+          onPressed: onPressed,
           icon: Icon(
             icon,
             size: 40,
@@ -359,16 +359,7 @@ class _FanControlPageState extends State<FanControlPage> {
       try {
         for (int i = 0; i < steps; i++) {
           await _sendControlCommand('speed', {'speed': isIncrement ? _fanSpeed + 1 : _fanSpeed - 1});
-          await Future.delayed(const Duration(milliseconds: 800)); // 每次指令間隔 800ms
-          
-          // 更新當前風速
-          setState(() {
-            if (isIncrement) {
-              _fanSpeed++;
-            } else {
-              _fanSpeed--;
-            }
-          });
+          await Future.delayed(const Duration(milliseconds: 800));
         }
         _showSnackBar('風速已調整至 $_fanSpeed 級');
       } catch (e) {
@@ -397,7 +388,7 @@ class _FanControlPageState extends State<FanControlPage> {
             ),
             Switch(
               value: _isManualMode,
-              onChanged: _isLoading ? null : _updateManualMode,
+              onChanged: _updateManualMode,
               activeColor: Theme.of(context).primaryColor,
             ),
             const Text(
@@ -532,8 +523,7 @@ class _FanControlPageState extends State<FanControlPage> {
 
                           // 電源按鈕
                           ElevatedButton(
-                            onPressed: _isLoading ?
-                            null : () => _sendControlCommand('power', {'isOn': !_isFanOn}),
+                            onPressed: () => _sendControlCommand('power', {'isOn': !_isFanOn}),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: _isFanOn ? Colors.red : Colors.green,
                               shape: const CircleBorder(),
