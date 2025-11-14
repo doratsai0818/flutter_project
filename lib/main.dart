@@ -15,7 +15,7 @@ import 'package:iot_project/fan_control_page.dart';
 import 'package:iot_project/sensor_data_page.dart';
 import 'package:iot_project/energy_saving_settings_page.dart'; // 新增匯入
 
-const String baseUrl = 'http://localhost:3000/api';
+const String baseUrl = 'https://unequatorial-cenogenetically-margrett.ngrok-free.dev/api';
 
 void main() {
   runApp(const MyApp());
@@ -98,6 +98,7 @@ class ApiService {
     final token = await TokenService.getToken();
     return {
       'Content-Type': 'application/json',
+      'ngrok-skip-browser-warning': 'true',
       if (token != null) 'Authorization': 'Bearer $token',
     };
   }

@@ -4,7 +4,7 @@ import 'dart:convert';
 
 /// ThemeManager 將用於管理應用程式的主題模式
 class ThemeManager with ChangeNotifier {
-  final String _baseUrl = 'http://localhost:3000/api'; // 後端 API 的基礎 URL
+  final String _baseUrl = 'https://unequatorial-cenogenetically-margrett.ngrok-free.dev/api'; // 後端 API 的基礎 URL
 
   ThemeMode _themeMode = ThemeMode.system; // 預設為系統主題
   bool _isLoading = false; // 用於表示是否正在載入設定
