@@ -1,6 +1,7 @@
 // sensor_data_page.dart
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:iot_project/config.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'dart:async';
@@ -85,7 +86,7 @@ class SensorDataPage extends StatefulWidget {
 }
 
 class _SensorDataPageState extends State<SensorDataPage> {
-  final String _baseUrl = 'http://localhost:3000/api';
+  final String _baseUrl = Config.apiUrl;
   final Map<String, dynamic> _sensorData = {};
   bool _isLoading = true;
   bool _hasError = false;

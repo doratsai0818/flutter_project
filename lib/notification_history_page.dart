@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
+import 'package:iot_project/config.dart';
 
 // 確保這個匯入路徑正確
 // import 'package:iot_project/main.dart'; // 如果需要使用 ApiService
@@ -15,7 +16,7 @@ class NotificationHistoryPage extends StatefulWidget {
 }
 
 class _NotificationHistoryPageState extends State<NotificationHistoryPage> {
-  final String _baseUrl = 'http://localhost:3000/api';
+  final String _baseUrl = Config.apiUrl;
 
   List<Map<String, dynamic>> _notifications = [];
   bool _isLoading = true;

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
+import 'package:iot_project/config.dart';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
@@ -18,7 +19,7 @@ class TokenService {
 
 // API 服務
 class ApiService {
-  static const String baseUrl = 'http://localhost:3000';
+  static const String baseUrl = Config.baseUrl;
   
   static Future<Map<String, String>> _getHeaders() async {
     final token = await TokenService.getToken();

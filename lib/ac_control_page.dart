@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:iot_project/config.dart';
 
 class ACControlPage extends StatefulWidget {
   final String jwtToken;
@@ -15,7 +16,7 @@ class ACControlPage extends StatefulWidget {
 }
 
 class _ACControlPageState extends State<ACControlPage> {
-  final String _baseUrl = 'http://localhost:3000/api';
+  final String _baseUrl = Config.apiUrl;
   
   String get _jwtToken => widget.jwtToken;
 

@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
+import 'package:iot_project/config.dart';
 
 class SystemSettingsPage extends StatefulWidget {
   const SystemSettingsPage({super.key});
@@ -12,7 +13,7 @@ class SystemSettingsPage extends StatefulWidget {
 }
 
 class _SystemSettingsPageState extends State<SystemSettingsPage> {
-  final String _baseUrl = 'http://localhost:3000/api';
+  final String _baseUrl = Config.apiUrl;
 
   // 系統設定狀態
   bool _isDarkMode = false;

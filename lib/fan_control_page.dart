@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:iot_project/config.dart';
 
 // 風扇控制頁面
 class FanControlPage extends StatefulWidget {
@@ -15,7 +16,7 @@ class FanControlPage extends StatefulWidget {
 }
 
 class _FanControlPageState extends State<FanControlPage> {
-  final String _baseUrl = 'http://localhost:3000/api';
+  final String _baseUrl = Config.apiUrl;
 
   // 風扇狀態變數
   bool _isFanOn = false;
