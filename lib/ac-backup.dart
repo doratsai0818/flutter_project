@@ -75,37 +75,49 @@ class _ACControlPageState extends State<ACControlPage> {
 
   /// 從後端獲取冷氣狀態
   Future<void> _fetchACStatus() async {
-    try {
-      final response = await http.get(
-        Uri.parse('$_baseUrl/ac/status'),
-        headers: {
-          'Content-Type': 'application/json',
-          'ngrok-skip-browser-warning': 'true',
-          'Authorization': 'Bearer $_jwtToken',
-        },
-      );
+  try {
+    final response = await http.get(
+      Uri.parse('$_baseUrl/ac/status'),
+      headers: {
+        'Content-Type': 'application/json',
+        'ngrok-skip-browser-warning': 'true',
+        'Authorization': 'Bearer $_jwtToken',
+      },
+    );
 
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
+    if (response.statusCode == 200) {
+      final responseData = json.decode(response.body);
+      
+      // ✅ 檢查 success 欄位
+      if (responseData['success'] == true && responseData['data'] != null) {
+        final data = responseData['data'];
+        
         setState(() {
+          _isACOn = data['is_on'] ?? false;  // ✅ 更新開關狀態
           _isManualMode = data['is_manual_mode'] ?? true;
           _currentSetTemp = _safeParseInt(data['current_set_temp'], 26);
           _selectedACModeIndex = data['selected_ac_mode_index'] ?? 0;
+          _fanSpeed = _safeParseInt(data['fan_speed'], 1);  // ✅ 更新風速
           _isACTimerOn = data['is_ac_timer_on'] ?? false;
           _selectedOnTime = _parseTimeFromString(data['timer_on_time']);
           _selectedOffTime = _parseTimeFromString(data['timer_off_time']);
           _hasError = false;
         });
-      } else if (response.statusCode == 401) {
-        _showErrorState('認證失效，請重新登入');
-      } else if (response.statusCode == 404) {
-        _showErrorState('找不到冷氣設定資料');
+      } else {
+        _showErrorState('資料格式錯誤');
       }
-    } catch (e) {
-      debugPrint('獲取冷氣狀態失敗: $e');
-      _showErrorState('網路連線錯誤');
+    } else if (response.statusCode == 401) {
+      _showErrorState('認證失效,請重新登入');
+    } else if (response.statusCode == 404) {
+      _showErrorState('找不到冷氣設定資料');
+    } else {
+      _showErrorState('取得冷氣狀態失敗');
     }
+  } catch (e) {
+    debugPrint('取得冷氣狀態失敗: $e');
+    _showErrorState('網路連線錯誤');
   }
+}
 
   /// 從後端獲取溫溼度數據
   Future<void> _fetchTempHumidity() async {
@@ -136,48 +148,65 @@ class _ACControlPageState extends State<ACControlPage> {
 
   /// 發送紅外線控制指令
   Future<void> _sendIRCommand(String action) async {
-    if (!_isManualMode && (action == 'temp_up' || action == 'temp_down' || action == 'wind_speed' || action.startsWith('mode'))) {
-      _showSnackBar('請先切換到手動模式', isError: true);
-      return;
-    }
+  if (!_isManualMode && (action == 'temp_up' || action == 'temp_down' || action == 'wind_speed' || action.startsWith('mode'))) {
+    _showSnackBar('請先切換到手動模式', isError: true);
+    return;
+  }
 
-    setState(() => _isLoading = true);
-    
-    try {
-      final response = await http.post(
-        Uri.parse('$_baseUrl/aircon'),
-        headers: {
-          'Content-Type': 'application/json',
-          'ngrok-skip-browser-warning': 'true',
-          'Authorization': 'Bearer $_jwtToken',
-        },
-        body: jsonEncode({
-          'device': 'aircon',
-          'action': action,
-        }),
-      );
+  setState(() => _isLoading = true);
+  
+  try {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/aircon'),
+      headers: {
+        'Content-Type': 'application/json',
+        'ngrok-skip-browser-warning': 'true',
+        'Authorization': 'Bearer $_jwtToken',
+      },
+      body: jsonEncode({
+        'device': 'aircon',
+        'action': action,
+      }),
+    );
 
-      if (response.statusCode == 200) {
-        final responseData = json.decode(response.body);
-        if (responseData['success']) {
-          _showSnackBar('操作成功');
-          await _fetchACStatus();
-        } else {
-          _showSnackBar(responseData['message'] ?? '控制失敗', isError: true);
-        }
-      } else if (response.statusCode == 401) {
-        _showSnackBar('認證失效，請重新登入', isError: true);
+    if (response.statusCode == 200) {
+      final responseData = json.decode(response.body);
+      if (responseData['success']) {
+        _showSnackBar('操作成功');
+        
+        // ✅ 立即更新本地狀態 (樂觀更新)
+        setState(() {
+          if (action == 'power') {
+            _isACOn = !_isACOn;
+          } else if (action == 'temp_up' && _currentSetTemp < 30) {
+            _currentSetTemp++;
+          } else if (action == 'temp_down' && _currentSetTemp > 16) {
+            _currentSetTemp--;
+          } else if (action == 'mode') {
+            _selectedACModeIndex = (_selectedACModeIndex + 1) % 3;
+          } else if (action == 'wind_speed') {
+            _fanSpeed = _fanSpeed >= 3 ? 1 : _fanSpeed + 1;
+          }
+        });
+        
+        // ✅ 然後從後端重新取得完整狀態 (確保同步)
+        await _fetchACStatus();
       } else {
-        final responseData = json.decode(response.body);
         _showSnackBar(responseData['message'] ?? '控制失敗', isError: true);
       }
-    } catch (e) {
-      debugPrint('發送紅外線指令失敗: $e');
-      _showSnackBar('網路連線失敗', isError: true);
-    } finally {
-      setState(() => _isLoading = false);
+    } else if (response.statusCode == 401) {
+      _showSnackBar('認證失效,請重新登入', isError: true);
+    } else {
+      final responseData = json.decode(response.body);
+      _showSnackBar(responseData['message'] ?? '控制失敗', isError: true);
     }
+  } catch (e) {
+    debugPrint('發送紅外線指令失敗: $e');
+    _showSnackBar('網路連線失敗', isError: true);
+  } finally {
+    setState(() => _isLoading = false);
   }
+}
 
   /// 更新手動/自動模式
   Future<void> _updateManualMode(bool value) async {
@@ -447,7 +476,6 @@ class _ACControlPageState extends State<ACControlPage> {
           ElevatedButton(
             onPressed: () async {
               await _sendIRCommand('power');
-              setState(() => _isACOn = !_isACOn);
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: _isACOn ? Colors.red : Colors.green,
