@@ -30,15 +30,19 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:  # ✅ 加入這行
+    sdk: flutter
   flutter_hooks: ^0.20.0
   google_fonts: ^6.1.0
   flutter_svg: ^2.0.10
   get: ^4.6.6
   fl_chart: ^0.68.0 # <-- 添加這一行，使用最新穩定版本
-  intl: ^0.19.0 # <-- 請添加這一行，可以使用最新穩定版本
+  intl: 0.20.2 # <-- 請添加這一行，可以使用最新穩定版本
   provider: ^6.0.5 # 請使用最新版本
   http: ^1.1.0 # 新增這行
   shared_preferences: ^2.2.2  # 用於本地存儲 token
+  firebase_core: ^2.24.2
+  firebase_messaging: ^14.7.9
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
