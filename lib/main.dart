@@ -2,9 +2,16 @@
 
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb; // ✅ 新增
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:iot_project/config.dart';
+import 'package:flutter_localizations/flutter_localizations.dart'; // ✅ 新增
+
+// ✅ 修改 Firebase 相關導入 - 使用條件導入
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'firebase_options.dart';
 
 import 'package:iot_project/home_page.dart';
 import 'package:iot_project/lighting_control_page.dart';
@@ -14,8 +21,42 @@ import 'package:iot_project/my_account_page.dart';
 import 'package:iot_project/fan_control_page.dart';
 import 'package:iot_project/sensor_data_page.dart';
 import 'package:iot_project/energy_saving_settings_page.dart';
+// ✅ 需要在文件開頭添加這個導入
+import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
 
-void main() {
+// ✅ 修改背景訊息處理器 - 只在移動平台有效
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  // 只在非 Web 和非桌面平台執行
+  if (!kIsWeb && (defaultTargetPlatform == TargetPlatform.android || 
+                  defaultTargetPlatform == TargetPlatform.iOS)) {
+    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+    print('📬 背景訊息: ${message.notification?.title}');
+  }
+}
+
+// ✅ 修改 main 函數
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  // ✅ 只在 Android/iOS 上初始化 Firebase
+  if (!kIsWeb && (defaultTargetPlatform == TargetPlatform.android || 
+                  defaultTargetPlatform == TargetPlatform.iOS)) {
+    try {
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+      print('✅ Firebase 初始化成功');
+      
+      // 設定背景訊息處理器
+      FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+    } catch (e) {
+      print('❌ Firebase 初始化失敗: $e');
+    }
+  } else {
+    print('ℹ️ 當前平台不支援 Firebase 推播通知');
+  }
+  
   runApp(const MyApp());
 }
 
@@ -31,13 +72,26 @@ class MyApp extends StatelessWidget {
         visualDensity: VisualDensity.adaptivePlatformDensity,
         useMaterial3: true,
       ),
+      
+      // ✅ 添加本地化支援
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [
+        Locale('zh', 'TW'), // 繁體中文
+        Locale('en', 'US'), // 英文
+      ],
+      locale: const Locale('zh', 'TW'), // 預設語言
+      
       home: const AuthWrapper(),
       debugShowCheckedModeBanner: false,
     );
   }
 }
 
-// Token 管理服務
+// Token 管理服務 (保持不變)
 class TokenService {
   static const String _tokenKey = 'auth_token';
   static const String _userIdKey = 'user_id';
@@ -90,7 +144,7 @@ class TokenService {
   }
 }
 
-// HTTP 請求服務
+// HTTP 請求服務 (保持不變)
 class ApiService {
   static Future<Map<String, String>> _getHeaders() async {
     final token = await TokenService.getToken();
@@ -128,6 +182,7 @@ class ApiService {
   }
 }
 
+// AuthWrapper (保持不變)
 class AuthWrapper extends StatefulWidget {
   const AuthWrapper({super.key});
 
@@ -190,6 +245,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
   }
 }
 
+// AuthPage (保持不變,只修改 _handleLogin 方法)
 class AuthPage extends StatefulWidget {
   final VoidCallback onLoginSuccess;
   const AuthPage({super.key, required this.onLoginSuccess});
@@ -265,6 +321,7 @@ class _AuthPageState extends State<AuthPage> {
     }
   }
 
+  // ✅ 修改登入方法
   Future<void> _handleLogin() async {
     if (!_loginFormKey.currentState!.validate() || _isLoading) return;
 
@@ -287,6 +344,21 @@ class _AuthPageState extends State<AuthPage> {
         );
 
         _showSnackBar('登入成功!歡迎回來。');
+        
+        // ✅ 只在 Android/iOS 上設定推播通知
+        if (!kIsWeb && (defaultTargetPlatform == TargetPlatform.android || 
+                        defaultTargetPlatform == TargetPlatform.iOS)) {
+          try {
+            await setupPushNotifications();
+            print('✓ FCM Token 已上傳');
+          } catch (fcmError) {
+            print('⚠️ FCM 設定失敗: $fcmError');
+            // 不阻擋登入流程
+          }
+        } else {
+          print('ℹ️ Windows/Web 平台跳過 FCM 設定');
+        }
+        
         widget.onLoginSuccess();
       } else {
         final responseBody = json.decode(response.body);
@@ -505,6 +577,79 @@ class _AuthPageState extends State<AuthPage> {
   }
 }
 
+// ✅ 修改 setupPushNotifications 函數
+Future<void> setupPushNotifications() async {
+  // ⚠️ 只在 Android/iOS 平台執行
+  if (kIsWeb || (defaultTargetPlatform != TargetPlatform.android && 
+                 defaultTargetPlatform != TargetPlatform.iOS)) {
+    print('ℹ️ 當前平台不支援 FCM 推播通知');
+    return;
+  }
+  
+  try {
+    final messaging = FirebaseMessaging.instance;
+    
+    // 請求通知權限
+    final settings = await messaging.requestPermission(
+      alert: true,
+      badge: true,
+      sound: true,
+      provisional: false,
+    );
+    
+    if (settings.authorizationStatus == AuthorizationStatus.authorized) {
+      print('✅ 用戶已授權通知');
+    } else if (settings.authorizationStatus == AuthorizationStatus.provisional) {
+      print('⚠️ 用戶已授予臨時通知權限');
+    } else {
+      print('❌ 用戶拒絕通知權限');
+      return;
+    }
+    
+    // 獲取 FCM Token
+    final fcmToken = await messaging.getToken();
+    
+    if (fcmToken != null) {
+      print('📱 FCM Token: ${fcmToken.substring(0, 30)}...');
+      
+      // 上傳到後端
+      try {
+        final response = await ApiService.post('/user/fcm-token', {
+          'fcm_token': fcmToken,
+        });
+        
+        if (response.statusCode == 200) {
+          print('✅ FCM Token 已上傳到伺服器');
+        } else {
+          print('⚠️ FCM Token 上傳失敗: ${response.statusCode}');
+        }
+      } catch (e) {
+        print('❌ 上傳 FCM Token 時發生錯誤: $e');
+      }
+    } else {
+      print('❌ 無法獲取 FCM Token');
+    }
+    
+    // 監聽前台訊息
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+      print('📨 收到前台訊息');
+      print('標題: ${message.notification?.title}');
+      print('內容: ${message.notification?.body}');
+    });
+    
+    // 監聽通知點擊
+    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+      print('📲 用戶點擊了通知');
+      print('數據: ${message.data}');
+    });
+    
+  } catch (e) {
+    print('❌ 設定推播通知失敗: $e');
+    rethrow;
+  }
+}
+
+// MainScreen (保持完全不變)
 class MainScreen extends StatefulWidget {
   final VoidCallback onLogout;
   const MainScreen({super.key, required this.onLogout});
@@ -548,7 +693,6 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  // ✅ 新增：重新載入用戶資料的方法
   Future<void> _loadUserData() async {
     final userData = await TokenService.getUserData();
     if (mounted) {
@@ -588,7 +732,6 @@ class _MainScreenState extends State<MainScreen> {
     Navigator.pop(context);
   }
 
-  // ✅ 修改：傳入 onProfileUpdated 回調
   void _navigateToMyAccount() {
     Navigator.push(
       context,
@@ -596,13 +739,11 @@ class _MainScreenState extends State<MainScreen> {
         builder: (context) => MyAccountPage(
           onLogout: widget.onLogout,
           onProfileUpdated: () {
-            // ✅ 當個人資料更新時，重新載入用戶資料
             _loadUserData();
           },
         ),
       ),
     ).then((_) {
-      // ✅ 從個人資料頁面返回時也重新載入
       _loadUserData();
     });
   }

@@ -3,6 +3,9 @@ plugins {
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+    
+    // 應用 Google Services 插件
+    id("com.google.gms.google-services")
 }
 
 android {
@@ -42,3 +45,6 @@ android {
 flutter {
     source = "../.."
 }
+
+// 移除所有 Groovy 語法的 apply plugin:
+// 這裡將不會有任何 apply plugin: 的語句

@@ -1,5 +1,5 @@
 // lib/ac_control_page.dart
-// 改進版：使用後端紅外線控制 + 即時溫溼度顯示
+// 改進版:根據實際冷氣遙控器邏輯修正
 
 import 'package:flutter/material.dart';
 import 'dart:async';
@@ -22,19 +22,15 @@ class _ACControlPageState extends State<ACControlPage> {
 
   // 冷氣狀態變數
   bool _isACOn = false;
-  bool _isManualMode = true; // 自動/手動模式
-  int _currentSetTemp = 26; // 設定溫度 (16-30°C)
-  int _selectedACModeIndex = 0; // 0:製冷, 1:除濕, 2:送風
-  int _fanSpeed = 1; // 風速 (1-3)
+  bool _isManualMode = true;
+  int _currentSetTemp = 26; // 15-31°C
+  int _selectedACModeIndex = 2; // 0:送風, 1:自動, 2:冷氣, 3:除濕
+  bool _isFanSpeedLow = true; // true=低速, false=高速
+  bool _isSleepMode = false; // 睡眠模式
   
   // 環境感測數據
   double _currentRoomTemp = 0.0;
   double _currentHumidity = 0.0;
-  
-  // 定時器
-  bool _isACTimerOn = false;
-  TimeOfDay? _selectedOnTime;
-  TimeOfDay? _selectedOffTime;
   
   // UI 狀態
   bool _isLoading = false;
@@ -44,8 +40,14 @@ class _ACControlPageState extends State<ACControlPage> {
   Timer? _statusTimer;
   Timer? _sensorTimer;
 
-  final List<String> _acModes = ['製冷', '除濕', '送風'];
-  final List<String> _acModeKeys = ['cool', 'dehumidify', 'fan'];
+  // 模式名稱對應
+  final List<String> _acModes = ['送風', '自動', '冷氣', '除濕'];
+  final List<IconData> _acModeIcons = [
+    Icons.air,           // 送風
+    Icons.autorenew,     // 自動
+    Icons.ac_unit,       // 冷氣
+    Icons.water_drop,    // 除濕
+  ];
 
   @override
   void initState() {
@@ -53,12 +55,10 @@ class _ACControlPageState extends State<ACControlPage> {
     _fetchACStatus();
     _fetchTempHumidity();
     
-    // 每5秒更新冷氣狀態
     _statusTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
       _fetchACStatus();
     });
     
-    // 每3秒更新溫溼度
     _sensorTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
       _fetchTempHumidity();
     });
@@ -73,53 +73,46 @@ class _ACControlPageState extends State<ACControlPage> {
 
   // ===== API 互動方法 =====
 
-  /// 從後端獲取冷氣狀態
   Future<void> _fetchACStatus() async {
-  try {
-    final response = await http.get(
-      Uri.parse('$_baseUrl/ac/status'),
-      headers: {
-        'Content-Type': 'application/json',
-        'ngrok-skip-browser-warning': 'true',
-        'Authorization': 'Bearer $_jwtToken',
-      },
-    );
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/ac/status'),
+        headers: {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+          'Authorization': 'Bearer $_jwtToken',
+        },
+      );
 
-    if (response.statusCode == 200) {
-      final responseData = json.decode(response.body);
-      
-      // ✅ 檢查 success 欄位
-      if (responseData['success'] == true && responseData['data'] != null) {
-        final data = responseData['data'];
+      if (response.statusCode == 200) {
+        final responseData = json.decode(response.body);
         
-        setState(() {
-          _isACOn = data['is_on'] ?? false;  // ✅ 更新開關狀態
-          _isManualMode = data['is_manual_mode'] ?? true;
-          _currentSetTemp = _safeParseInt(data['current_set_temp'], 26);
-          _selectedACModeIndex = data['selected_ac_mode_index'] ?? 0;
-          _fanSpeed = _safeParseInt(data['fan_speed'], 1);  // ✅ 更新風速
-          _isACTimerOn = data['is_ac_timer_on'] ?? false;
-          _selectedOnTime = _parseTimeFromString(data['timer_on_time']);
-          _selectedOffTime = _parseTimeFromString(data['timer_off_time']);
-          _hasError = false;
-        });
+        if (responseData['success'] == true && responseData['data'] != null) {
+          final data = responseData['data'];
+          
+          setState(() {
+            _isACOn = data['is_on'] ?? false;
+            _isManualMode = data['is_manual_mode'] ?? true;
+            _currentSetTemp = _safeParseInt(data['current_set_temp'], 26);
+            _selectedACModeIndex = data['selected_ac_mode_index'] ?? 2;
+            _isFanSpeedLow = (data['fan_speed'] ?? 1) == 1; // 1=低速, 2=高速
+            _isSleepMode = data['is_sleep_mode'] ?? false;
+            _hasError = false;
+          });
+        } else {
+          _showErrorState('資料格式錯誤');
+        }
+      } else if (response.statusCode == 401) {
+        _showErrorState('認證失效,請重新登入');
       } else {
-        _showErrorState('資料格式錯誤');
+        _showErrorState('取得冷氣狀態失敗');
       }
-    } else if (response.statusCode == 401) {
-      _showErrorState('認證失效,請重新登入');
-    } else if (response.statusCode == 404) {
-      _showErrorState('找不到冷氣設定資料');
-    } else {
-      _showErrorState('取得冷氣狀態失敗');
+    } catch (e) {
+      debugPrint('取得冷氣狀態失敗: $e');
+      _showErrorState('網路連線錯誤');
     }
-  } catch (e) {
-    debugPrint('取得冷氣狀態失敗: $e');
-    _showErrorState('網路連線錯誤');
   }
-}
 
-  /// 從後端獲取溫溼度數據
   Future<void> _fetchTempHumidity() async {
     try {
       final response = await http.get(
@@ -142,73 +135,80 @@ class _ACControlPageState extends State<ACControlPage> {
         }
       }
     } catch (e) {
-      debugPrint('獲取溫溼度失敗: $e');
+      debugPrint('獲取溫濕度失敗: $e');
     }
   }
 
-  /// 發送紅外線控制指令
   Future<void> _sendIRCommand(String action) async {
-  if (!_isManualMode && (action == 'temp_up' || action == 'temp_down' || action == 'wind_speed' || action.startsWith('mode'))) {
-    _showSnackBar('請先切換到手動模式', isError: true);
-    return;
-  }
-
-  setState(() => _isLoading = true);
-  
-  try {
-    final response = await http.post(
-      Uri.parse('$_baseUrl/aircon'),
-      headers: {
-        'Content-Type': 'application/json',
-        'ngrok-skip-browser-warning': 'true',
-        'Authorization': 'Bearer $_jwtToken',
-      },
-      body: jsonEncode({
-        'device': 'aircon',
-        'action': action,
-      }),
-    );
-
-    if (response.statusCode == 200) {
-      final responseData = json.decode(response.body);
-      if (responseData['success']) {
-        _showSnackBar('操作成功');
-        
-        // ✅ 立即更新本地狀態 (樂觀更新)
-        setState(() {
-          if (action == 'power') {
-            _isACOn = !_isACOn;
-          } else if (action == 'temp_up' && _currentSetTemp < 30) {
-            _currentSetTemp++;
-          } else if (action == 'temp_down' && _currentSetTemp > 16) {
-            _currentSetTemp--;
-          } else if (action == 'mode') {
-            _selectedACModeIndex = (_selectedACModeIndex + 1) % 3;
-          } else if (action == 'wind_speed') {
-            _fanSpeed = _fanSpeed >= 3 ? 1 : _fanSpeed + 1;
-          }
-        });
-        
-        // ✅ 然後從後端重新取得完整狀態 (確保同步)
-        await _fetchACStatus();
-      } else {
-        _showSnackBar(responseData['message'] ?? '控制失敗', isError: true);
-      }
-    } else if (response.statusCode == 401) {
-      _showSnackBar('認證失效,請重新登入', isError: true);
-    } else {
-      final responseData = json.decode(response.body);
-      _showSnackBar(responseData['message'] ?? '控制失敗', isError: true);
+    // 自動模式下禁止手動操作(除了開關和模式切換)
+    if (!_isManualMode && 
+        action != 'power' && 
+        action != 'mode' &&
+        action != 'sleep') {
+      _showSnackBar('請先切換到手動模式', isError: true);
+      return;
     }
-  } catch (e) {
-    debugPrint('發送紅外線指令失敗: $e');
-    _showSnackBar('網路連線失敗', isError: true);
-  } finally {
-    setState(() => _isLoading = false);
-  }
-}
 
-  /// 更新手動/自動模式
+    setState(() => _isLoading = true);
+    
+    try {
+      final response = await http.post(
+        Uri.parse('$_baseUrl/aircon'),
+        headers: {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+          'Authorization': 'Bearer $_jwtToken',
+        },
+        body: jsonEncode({
+          'device': 'aircon',
+          'action': action,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final responseData = json.decode(response.body);
+        if (responseData['success']) {
+          _showSnackBar('操作成功');
+          
+          // 樂觀更新本地狀態
+          setState(() {
+            switch (action) {
+              case 'power':
+                _isACOn = !_isACOn;
+                break;
+              case 'temp_up':
+                if (_currentSetTemp < 31) _currentSetTemp++;
+                break;
+              case 'temp_down':
+                if (_currentSetTemp > 15) _currentSetTemp--;
+                break;
+              case 'mode':
+                _selectedACModeIndex = (_selectedACModeIndex + 1) % 4;
+                break;
+              case 'wind_speed':
+                _isFanSpeedLow = !_isFanSpeedLow;
+                break;
+              case 'sleep':
+                _isSleepMode = !_isSleepMode;
+                break;
+            }
+          });
+          
+          await _fetchACStatus();
+        } else {
+          _showSnackBar(responseData['message'] ?? '控制失敗', isError: true);
+        }
+      } else {
+        _showSnackBar('控制失敗', isError: true);
+      }
+    } catch (e) {
+      debugPrint('發送紅外線指令失敗: $e');
+      _showSnackBar('網路連線失敗', isError: true);
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
   Future<void> _updateManualMode(bool value) async {
     try {
       final response = await http.post(
@@ -264,22 +264,6 @@ class _ACControlPageState extends State<ACControlPage> {
     return 0.0;
   }
 
-  TimeOfDay? _parseTimeFromString(String? timeString) {
-    if (timeString == null || timeString.isEmpty) return null;
-    try {
-      final parts = timeString.split(':');
-      if (parts.length >= 2) {
-        return TimeOfDay(
-          hour: int.parse(parts[0]),
-          minute: int.parse(parts[1]),
-        );
-      }
-    } catch (e) {
-      debugPrint('解析時間失敗: $timeString');
-    }
-    return null;
-  }
-
   void _showErrorState(String message) {
     setState(() {
       _hasError = true;
@@ -298,6 +282,21 @@ class _ACControlPageState extends State<ACControlPage> {
     );
   }
 
+  // 檢查當前模式是否可調整溫度
+  bool get _canAdjustTemperature {
+    return _isACOn && _isManualMode && _selectedACModeIndex == 2; // 只有冷氣模式
+  }
+
+  // 檢查當前模式是否可調整風速
+  bool get _canAdjustFanSpeed {
+    return _isACOn && _isManualMode && _selectedACModeIndex != 3; // 除濕模式鎖定低速
+  }
+
+  // 檢查是否可開啟睡眠模式
+  bool get _canUseSleepMode {
+    return _isACOn && _selectedACModeIndex == 2; // 只有冷氣模式
+  }
+
   // ===== UI 構建方法 =====
 
   @override
@@ -312,34 +311,19 @@ class _ACControlPageState extends State<ACControlPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // 環境資訊卡片
             _buildEnvironmentCard(),
             const SizedBox(height: 20),
-            
-            // 模式控制
             _buildModeControl(),
             const SizedBox(height: 20),
-            
-            // 主控制面板
             _buildMainControlPanel(),
             const SizedBox(height: 20),
-            
-            // 模式選擇
             _buildACModeSelector(),
             const SizedBox(height: 20),
-            
-            // 溫度控制
             _buildTemperatureControl(),
             const SizedBox(height: 20),
-            
-            // 風速控制
             _buildFanSpeedControl(),
             const SizedBox(height: 20),
-            
-            // 定時器 (可選)
-            // _buildTimerSection(),
-            
-            // 載入指示器
+            _buildSleepModeControl(),
             if (_isLoading) _buildLoadingIndicator(),
           ],
         ),
@@ -380,14 +364,9 @@ class _ACControlPageState extends State<ACControlPage> {
       decoration: _buildCardDecoration(),
       child: Column(
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Text(
-                '當前環境資訊',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-              ),
-            ],
+          const Text(
+            '當前環境資訊',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 20),
           Row(
@@ -465,7 +444,7 @@ class _ACControlPageState extends State<ACControlPage> {
       child: Column(
         children: [
           Text(
-            _isACOn ? '冷氣狀態：開啟' : '冷氣狀態：關閉',
+            _isACOn ? '冷氣狀態:開啟' : '冷氣狀態:關閉',
             style: TextStyle(
               fontSize: 24,
               fontWeight: FontWeight.bold,
@@ -474,16 +453,14 @@ class _ACControlPageState extends State<ACControlPage> {
           ),
           const SizedBox(height: 20),
           ElevatedButton(
-            onPressed: () async {
-              await _sendIRCommand('power');
-            },
+            onPressed: () => _sendIRCommand('power'),
             style: ElevatedButton.styleFrom(
               backgroundColor: _isACOn ? Colors.red : Colors.green,
               shape: const CircleBorder(),
               padding: const EdgeInsets.all(24),
             ),
             child: Icon(
-              _isACOn ? Icons.power_settings_new : Icons.power_off,
+              Icons.power_settings_new,
               color: Colors.white,
               size: 48,
             ),
@@ -518,10 +495,7 @@ class _ACControlPageState extends State<ACControlPage> {
                   padding: const EdgeInsets.symmetric(horizontal: 4),
                   child: ElevatedButton(
                     onPressed: (_isManualMode && _isACOn)
-                        ? () async {
-                            await _sendIRCommand('mode');
-                            setState(() => _selectedACModeIndex = idx);
-                          }
+                        ? () => _sendIRCommand('mode')
                         : null,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: isSelected && _isManualMode
@@ -530,22 +504,30 @@ class _ACControlPageState extends State<ACControlPage> {
                       foregroundColor: isSelected && _isManualMode
                           ? Colors.white
                           : Colors.black54,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
                     ),
-                    child: Text(
-                      mode,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
+                    child: Column(
+                      children: [
+                        Icon(_acModeIcons[idx], size: 20),
+                        const SizedBox(height: 4),
+                        Text(
+                          mode,
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      ],
                     ),
                   ),
                 ),
               );
             }).toList(),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '提示: 循環順序為 ${_acModes.join(' → ')}',
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
           ),
         ],
       ),
@@ -559,9 +541,19 @@ class _ACControlPageState extends State<ACControlPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            '溫度設定',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                '溫度設定',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              if (!_canAdjustTemperature)
+                Text(
+                  '(僅限冷氣模式)',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                ),
+            ],
           ),
           const SizedBox(height: 20),
           Row(
@@ -569,23 +561,23 @@ class _ACControlPageState extends State<ACControlPage> {
             children: [
               IconButton(
                 icon: const Icon(Icons.remove_circle_outline, size: 48),
-                onPressed: (_isManualMode && _isACOn && _currentSetTemp > 16)
-                    ? () async {
-                        await _sendIRCommand('temp_down');
-                        setState(() => _currentSetTemp--);
-                      }
+                onPressed: (_canAdjustTemperature && _currentSetTemp > 15)
+                    ? () => _sendIRCommand('temp_down')
                     : null,
-                color: (_isManualMode && _currentSetTemp > 16)
-                    ? Colors.blue
-                    : Colors.grey,
+                color: _canAdjustTemperature ? Colors.blue : Colors.grey,
               ),
               Container(
                 width: 120,
                 height: 120,
                 decoration: BoxDecoration(
-                  color: Colors.blue.shade50,
+                  color: _canAdjustTemperature 
+                      ? Colors.blue.shade50 
+                      : Colors.grey.shade200,
                   shape: BoxShape.circle,
-                  border: Border.all(color: Colors.blue, width: 3),
+                  border: Border.all(
+                    color: _canAdjustTemperature ? Colors.blue : Colors.grey,
+                    width: 3,
+                  ),
                 ),
                 child: Center(
                   child: Column(
@@ -596,12 +588,12 @@ class _ACControlPageState extends State<ACControlPage> {
                         style: TextStyle(
                           fontSize: 36,
                           fontWeight: FontWeight.bold,
-                          color: _isManualMode ? Colors.blue : Colors.grey,
+                          color: _canAdjustTemperature ? Colors.blue : Colors.grey,
                         ),
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        '16-30°C',
+                        '15-31°C',
                         style: TextStyle(
                           fontSize: 12,
                           color: Colors.grey.shade600,
@@ -613,15 +605,10 @@ class _ACControlPageState extends State<ACControlPage> {
               ),
               IconButton(
                 icon: const Icon(Icons.add_circle_outline, size: 48),
-                onPressed: (_isManualMode && _isACOn && _currentSetTemp < 30)
-                    ? () async {
-                        await _sendIRCommand('temp_up');
-                        setState(() => _currentSetTemp++);
-                      }
+                onPressed: (_canAdjustTemperature && _currentSetTemp < 31)
+                    ? () => _sendIRCommand('temp_up')
                     : null,
-                color: (_isManualMode && _currentSetTemp < 30)
-                    ? Colors.blue
-                    : Colors.grey,
+                color: _canAdjustTemperature ? Colors.blue : Colors.grey,
               ),
             ],
           ),
@@ -637,48 +624,152 @@ class _ACControlPageState extends State<ACControlPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            '風速設定',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                '風速設定',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              if (_selectedACModeIndex == 3)
+                Text(
+                  '(除濕模式鎖定低速)',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                ),
+            ],
           ),
           const SizedBox(height: 16),
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              _buildFanSpeedButton(1, '低速'),
-              _buildFanSpeedButton(2, '中速'),
-              _buildFanSpeedButton(3, '高速'),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _canAdjustFanSpeed
+                      ? () => _sendIRCommand('wind_speed')
+                      : null,
+                  icon: Icon(_isFanSpeedLow ? Icons.air : Icons.tornado),
+                  label: Text(
+                    _isFanSpeedLow ? '低速' : '高速',
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _canAdjustFanSpeed
+                        ? Colors.blue
+                        : Colors.grey.shade300,
+                    foregroundColor: _canAdjustFanSpeed
+                        ? Colors.white
+                        : Colors.black54,
+                    padding: const EdgeInsets.symmetric(vertical: 20),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
             ],
+          ),
+          const SizedBox(height: 8),
+          Center(
+            child: Text(
+              '點擊切換 低速 ↔ 高速',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildFanSpeedButton(int speed, String label) {
-    bool isSelected = _fanSpeed == speed;
-    return ElevatedButton(
-      onPressed: (_isManualMode && _isACOn)
-          ? () async {
-              await _sendIRCommand('wind_speed');
-              setState(() => _fanSpeed = speed);
-            }
-          : null,
-      style: ElevatedButton.styleFrom(
-        backgroundColor: isSelected && _isManualMode
-            ? Colors.blue
-            : Colors.grey.shade300,
-        foregroundColor: isSelected && _isManualMode
-            ? Colors.white
-            : Colors.black54,
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-      ),
-      child: Text(
-        label,
-        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+  Widget _buildSleepModeControl() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: _buildCardDecoration(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                '睡眠模式',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              if (!_canUseSleepMode)
+                Text(
+                  '(僅限冷氣模式)',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _canUseSleepMode
+                      ? () => _sendIRCommand('sleep')
+                      : null,
+                  icon: Icon(_isSleepMode ? Icons.bedtime : Icons.bedtime_outlined),
+                  label: Text(
+                    _isSleepMode ? '睡眠模式:開啟' : '睡眠模式:關閉',
+                    style: const TextStyle(fontSize: 16),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _isSleepMode && _canUseSleepMode
+                        ? Colors.indigo
+                        : Colors.grey.shade300,
+                    foregroundColor: _isSleepMode && _canUseSleepMode
+                        ? Colors.white
+                        : Colors.black54,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (_isSleepMode && _canUseSleepMode)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.indigo.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.indigo.shade200),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.info_outline, size: 16, color: Colors.indigo.shade700),
+                        const SizedBox(width: 8),
+                        Text(
+                          '睡眠模式說明',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.indigo.shade700,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '• 風速鎖定低速並減少噪音\n'
+                      '• 每隔一段時間提升設定溫度\n'
+                      '• 避免因溫度過低導致不適\n'
+                      '• 6小時後自動停止運轉',
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

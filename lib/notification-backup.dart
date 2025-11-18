@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:convert';
 
 import 'package:iot_project/notification_history_page.dart';
+// 匯入 main.dart 中的服務類別
 import 'package:iot_project/main.dart';
 
 /// 定義通知偏好設定
@@ -23,6 +24,7 @@ extension NotificationPreferenceExtension on NotificationPreference {
     }
   }
 
+  /// Helper to convert string from backend to enum
   static NotificationPreference fromString(String? value) {
     if (value == null) return NotificationPreference.vibrationAndSound;
     
@@ -37,6 +39,7 @@ extension NotificationPreferenceExtension on NotificationPreference {
     }
   }
 
+  /// Helper to convert enum to string for backend
   String toBackendString() {
     switch (this) {
       case NotificationPreference.vibrationAndSound:
@@ -57,7 +60,7 @@ class NotificationSettingsPage extends StatefulWidget {
 }
 
 class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
-  // 各類通知的開關狀態和偏好
+  // 各類通知的開關狀態和偏好，從後端獲取
   bool _powerAnomalyOn = true;
   NotificationPreference _powerAnomalyPreference = NotificationPreference.vibrationAndSound;
 
@@ -67,29 +70,26 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
   bool _sensorAnomalyOn = true;
   NotificationPreference _sensorAnomalyPreference = NotificationPreference.vibrationAndSound;
 
+  bool _systemModeSwitchOn = true;
+  NotificationPreference _systemModeSwitchPreference = NotificationPreference.vibrationOnly;
+
   bool _isLoading = false;
   bool _isInitialized = false;
-
-  // 閾值設定
-  double _humidityHighThreshold = 28.0;  // ✅ 改名:濕度過高
-  double _tempHighThreshold = 32.0;      // ✅ 改名:溫度過高(原嚴重)
-  double _powerSpikeThreshold = 2000;
-  int _offlineTimeoutSec = 300;
 
   @override
   void initState() {
     super.initState();
     _fetchNotificationSettings();
-    _fetchAlertThresholds();
   }
 
-  /// 從後端獲取通知設定
+  /// 從後端獲取通知設定（使用 JWT token）
   Future<void> _fetchNotificationSettings() async {
     setState(() {
       _isLoading = true;
     });
 
     try {
+      // 使用 ApiService 發送帶有 JWT token 的請求
       final response = await ApiService.get('/notification/settings');
       
       if (response.statusCode == 200) {
@@ -97,6 +97,7 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
         
         if (mounted) {
           setState(() {
+            // 根據後端資料庫結構解析數據
             _powerAnomalyOn = data['power_anomaly_on'] ?? true;
             _powerAnomalyPreference = NotificationPreferenceExtension.fromString(
               data['power_anomaly_preference']
@@ -112,17 +113,23 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
               data['sensor_anomaly_preference']
             );
 
+            _systemModeSwitchOn = data['system_mode_switch_on'] ?? true;
+            _systemModeSwitchPreference = NotificationPreferenceExtension.fromString(
+              data['system_mode_switch_preference']
+            );
+
             _isInitialized = true;
           });
         }
         print('成功獲取通知設定: $data');
         
       } else if (response.statusCode == 401) {
-        _showSnackBar('登入已過期,請重新登入', isError: true);
+        // Token 失效
+        _showSnackBar('登入已過期，請重新登入', isError: true);
         await _handleTokenExpired();
         
       } else if (response.statusCode == 404) {
-        _showSnackBar('找不到通知設定,使用預設值', isError: false);
+        _showSnackBar('找不到通知設定，使用預設值', isError: false);
         setState(() {
           _isInitialized = true;
         });
@@ -139,7 +146,7 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
     } catch (e) {
       print('獲取通知設定時發生錯誤: $e');
       if (mounted) {
-        _showSnackBar('網路連線錯誤,請檢查伺服器狀態', isError: true);
+        _showSnackBar('網路連線錯誤，請檢查伺服器狀態', isError: true);
         setState(() {
           _isInitialized = true;
         });
@@ -153,47 +160,6 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
     }
   }
 
-  /// 獲取閾值設定
-  Future<void> _fetchAlertThresholds() async {
-    try {
-      final response = await ApiService.get('/alert/thresholds');
-      
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        
-        if (mounted) {
-          setState(() {
-            // ✅ 更新欄位對應
-            _humidityHighThreshold = _toDouble(data['temp_high_threshold']) ?? 28.0;
-            _tempHighThreshold = _toDouble(data['temp_critical_threshold']) ?? 32.0;
-            _powerSpikeThreshold = _toDouble(data['power_spike_threshold']) ?? 2000.0;
-            _offlineTimeoutSec = _toInt(data['offline_timeout_sec']) ?? 300;
-          });
-        }
-      }
-    } catch (e) {
-      print('獲取閾值設定失敗: $e');
-    }
-  }
-
-  /// 安全地轉換為 double
-  double? _toDouble(dynamic value) {
-    if (value == null) return null;
-    if (value is double) return value;
-    if (value is int) return value.toDouble();
-    if (value is String) return double.tryParse(value);
-    return null;
-  }
-
-  /// 安全地轉換為 int
-  int? _toInt(dynamic value) {
-    if (value == null) return null;
-    if (value is int) return value;
-    if (value is double) return value.toInt();
-    if (value is String) return int.tryParse(value);
-    return null;
-  }
-
   /// 處理 Token 過期
   Future<void> _handleTokenExpired() async {
     await TokenService.clearAuthData();
@@ -202,24 +168,7 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
     }
   }
 
-  Future<void> _sendTestNotification() async {
-    try {
-      final response = await ApiService.post('/test/notification', {
-        'message': '這是來自 App 的測試通知 📱'
-      });
-      
-      if (response.statusCode == 200) {
-        _showSnackBar('測試通知已發送,請檢查手機通知', isError: false);
-      } else {
-        final data = json.decode(response.body);
-        _showSnackBar('發送失敗: ${data['message']}', isError: true);
-      }
-    } catch (e) {
-      _showSnackBar('發送測試通知失敗: $e', isError: true);
-    }
-  }
-
-  /// 向後端發送更新通知設定的請求
+  /// 向後端發送更新通知設定的請求（使用 JWT token）
   Future<void> _updateNotificationSetting(
     String type, {
     bool? isOn,
@@ -228,10 +177,12 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
     if (!_isInitialized) return;
 
     try {
+      // 構建請求體，符合後端 API 期望的格式
       final Map<String, dynamic> body = {
         'type': type,
       };
       
+      // 根據提供的參數決定發送的內容
       if (isOn != null) {
         body['isOn'] = isOn;
       }
@@ -239,6 +190,7 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
         body['preference'] = preference.toBackendString();
       }
 
+      // 確保至少有一個參數被提供
       if (isOn == null && preference == null) {
         print('警告: 更新通知設定時沒有提供任何參數');
         return;
@@ -246,6 +198,7 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
 
       print('發送通知設定更新請求: $body');
 
+      // 使用 ApiService 發送帶有 JWT token 的請求
       final response = await ApiService.post('/notification/settings', body);
 
       if (response.statusCode == 200) {
@@ -253,26 +206,42 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
         print('成功更新通知設定: $type - ${responseData['message']}');
         
         if (mounted) {
-          _showSnackBar('${_getNotificationTypeName(type)} 設定已保存!', isError: false);
+          _showSnackBar('${_getNotificationTypeName(type)} 設定已保存！', isError: false);
         }
         
       } else if (response.statusCode == 401) {
-        print('Token 失效,需要重新登入');
-        _showSnackBar('登入已過期,請重新登入', isError: true);
+        // Token 失效
+        print('Token 失效，需要重新登入');
+        _showSnackBar('登入已過期，請重新登入', isError: true);
         await _handleTokenExpired();
+        
+      } else if (response.statusCode == 400) {
+        final errorData = json.decode(response.body);
+        print('請求參數錯誤: ${errorData['message']}');
+        _showSnackBar(errorData['message'] ?? '參數錯誤', isError: true);
+        
+        // 重新載入設定以恢復正確狀態
+        await _fetchNotificationSettings();
+        
+      } else if (response.statusCode == 404) {
+        print('找不到用戶通知設定');
+        _showSnackBar('找不到您的通知設定，請聯繫客服', isError: true);
         
       } else {
         final errorData = json.decode(response.body);
         print('更新通知設定失敗: ${response.statusCode} - ${response.body}');
-        _showSnackBar(errorData['message'] ?? '保存失敗,請重試', isError: true);
+        _showSnackBar(errorData['message'] ?? '保存失敗，請重試', isError: true);
         
+        // 重新載入設定以恢復正確狀態
         await _fetchNotificationSettings();
       }
       
     } catch (e) {
       print('更新通知設定時發生錯誤: $e');
       if (mounted) {
-        _showSnackBar('網路連線錯誤,請檢查伺服器狀態', isError: true);
+        _showSnackBar('網路連線錯誤，請檢查伺服器狀態', isError: true);
+        
+        // 重新載入設定以恢復正確狀態
         await _fetchNotificationSettings();
       }
     }
@@ -301,15 +270,17 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
     }
   }
 
-  /// 根據類型字串獲取通知名稱
+  /// 根據類型字串獲取通知名稱 (用於 SnackBar 提示)
   String _getNotificationTypeName(String type) {
     switch (type) {
       case 'powerAnomaly':
         return '用電異常通知';
       case 'tempLightReminder':
-        return '環境警告提醒';
+        return '溫度過高 / 照度不足提醒';
       case 'sensorAnomaly':
-        return '設備狀態警告';
+        return '感測器異常 / 離線警告';
+      case 'systemModeSwitch':
+        return '系統切換模式提示';
       default:
         return '通知';
     }
@@ -318,161 +289,6 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
   /// 重新載入設定
   Future<void> _refreshSettings() async {
     await _fetchNotificationSettings();
-    await _fetchAlertThresholds();
-  }
-
-  /// ✅ 顯示可編輯的閾值設定對話框
-  void _showEditableThresholdDialog() {
-    // 建立暫存控制器
-    final humidityController = TextEditingController(
-      text: _humidityHighThreshold.toStringAsFixed(1)
-    );
-    final tempController = TextEditingController(
-      text: _tempHighThreshold.toStringAsFixed(1)
-    );
-    final powerController = TextEditingController(
-      text: _powerSpikeThreshold.toStringAsFixed(0)
-    );
-    final offlineController = TextEditingController(
-      text: (_offlineTimeoutSec ~/ 60).toString()
-    );
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('異常偵測閾值設定'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // 濕度過高警告
-              TextField(
-                controller: humidityController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: '濕度過高警告',
-                  suffixText: '%',
-                  helperText: '建議範圍: 60-80%',
-                ),
-              ),
-              const SizedBox(height: 16),
-              
-              // 溫度過高警告
-              TextField(
-                controller: tempController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: '溫度過高警告',
-                  suffixText: '°C',
-                  helperText: '建議範圍: 28-35°C',
-                ),
-              ),
-              const SizedBox(height: 16),
-              
-              // 功率異常警告
-              TextField(
-                controller: powerController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: '功率異常警告',
-                  suffixText: 'W',
-                  helperText: '建議範圍: 1500-3000W',
-                ),
-              ),
-              const SizedBox(height: 16),
-              
-              // 離線判定時間
-              TextField(
-                controller: offlineController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: '離線判定時間',
-                  suffixText: '分鐘',
-                  helperText: '建議範圍: 3-10 分鐘',
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              try {
-                // 解析輸入值
-                final humidity = double.tryParse(humidityController.text);
-                final temp = double.tryParse(tempController.text);
-                final power = double.tryParse(powerController.text);
-                final offlineMin = int.tryParse(offlineController.text);
-
-                // 驗證輸入
-                if (humidity == null || temp == null || power == null || offlineMin == null) {
-                  _showSnackBar('請輸入有效的數值', isError: true);
-                  return;
-                }
-
-                // ✅ 濕度範圍驗證 (50-90%)
-                if (humidity < 50 || humidity > 90) {
-                  _showSnackBar('濕度必須在 50-90% 之間', isError: true);
-                  return;
-                }
-
-                // ✅ 溫度範圍驗證 (28-40°C)
-                if (temp < 28 || temp > 40) {
-                  _showSnackBar('溫度必須在 28-40°C 之間', isError: true);
-                  return;
-                }
-
-                if (power < 0 || power > 5000) {
-                  _showSnackBar('功率必須在 0-5000W 之間', isError: true);
-                  return;
-                }
-
-                if (offlineMin < 1 || offlineMin > 60) {
-                  _showSnackBar('離線時間必須在 1-60 分鐘之間', isError: true);
-                  return;
-                }
-
-                // 發送更新請求
-                final response = await ApiService.post('/alert/thresholds', {
-                  'tempHighThreshold': humidity,      // ✅ 對應到後端的 temp_high_threshold
-                  'tempCriticalThreshold': temp,      // ✅ 對應到後端的 temp_critical_threshold
-                  'powerSpikeThreshold': power,
-                  'offlineTimeoutSec': offlineMin * 60,
-                });
-
-                if (response.statusCode == 200) {
-                  setState(() {
-                    _humidityHighThreshold = humidity;
-                    _tempHighThreshold = temp;
-                    _powerSpikeThreshold = power;
-                    _offlineTimeoutSec = offlineMin * 60;
-                  });
-                  
-                  Navigator.pop(context);
-                  _showSnackBar('閾值設定已更新!', isError: false);
-                } else {
-                  final data = json.decode(response.body);
-                  _showSnackBar('更新失敗: ${data['message']}', isError: true);
-                }
-              } catch (e) {
-                _showSnackBar('更新閾值失敗: $e', isError: true);
-              }
-            },
-            child: const Text('保存'),
-          ),
-        ],
-      ),
-    ).then((_) {
-      // 釋放控制器
-      humidityController.dispose();
-      tempController.dispose();
-      powerController.dispose();
-      offlineController.dispose();
-    });
   }
 
   @override
@@ -485,18 +301,6 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
-          // ✅ 測試按鈕
-          IconButton(
-            icon: const Icon(Icons.notifications_active),
-            onPressed: _sendTestNotification,
-            tooltip: '發送測試通知',
-          ),
-          // ✅ 閾值設定按鈕(改為可編輯)
-          IconButton(
-            icon: const Icon(Icons.tune),
-            onPressed: _showEditableThresholdDialog,
-            tooltip: '編輯閾值設定',
-          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _isLoading ? null : _refreshSettings,
@@ -548,7 +352,7 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
                     context,
                     index: 1,
                     title: '用電異常通知',
-                    subtitle: '功率異常、電流過載、設備故障等警告',
+                    subtitle: '當偵測到異常用電時通知您',
                     icon: Icons.power_off,
                     isOn: _powerAnomalyOn,
                     onChanged: _isInitialized ? (value) {
@@ -562,12 +366,12 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
                     } : null,
                   ),
 
-                  // 環境警告提醒
+                  // 溫度過高 / 照度不足提醒
                   _buildNotificationTypeCard(
                     context,
                     index: 2,
                     title: '環境警告提醒',
-                    subtitle: '溫度/濕度過高時提醒',
+                    subtitle: '溫度過高或照度不足時提醒',
                     icon: Icons.thermostat,
                     isOn: _tempLightReminderOn,
                     onChanged: _isInitialized ? (value) {
@@ -581,7 +385,7 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
                     } : null,
                   ),
 
-                  // 設備狀態警告
+                  // 感測器異常 / 離線警告
                   _buildNotificationTypeCard(
                     context,
                     index: 3,
@@ -597,6 +401,25 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
                     onPreferenceChanged: _isInitialized ? (newPreference) {
                       setState(() => _sensorAnomalyPreference = newPreference);
                       _updateNotificationPreference('sensorAnomaly', newPreference);
+                    } : null,
+                  ),
+
+                  // 系統切換模式提示
+                  _buildNotificationTypeCard(
+                    context,
+                    index: 4,
+                    title: '系統模式切換',
+                    subtitle: '系統切換運作模式時提示',
+                    icon: Icons.swap_horiz,
+                    isOn: _systemModeSwitchOn,
+                    onChanged: _isInitialized ? (value) {
+                      setState(() => _systemModeSwitchOn = value);
+                      _updateNotificationSwitch('systemModeSwitch', value);
+                    } : null,
+                    preference: _systemModeSwitchPreference,
+                    onPreferenceChanged: _isInitialized ? (newPreference) {
+                      setState(() => _systemModeSwitchPreference = newPreference);
+                      _updateNotificationPreference('systemModeSwitch', newPreference);
                     } : null,
                   ),
 
@@ -744,7 +567,7 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
                   const Icon(Icons.volume_up, size: 20, color: Colors.grey),
                   const SizedBox(width: 8),
                   const Text(
-                    '通知方式:',
+                    '通知方式：',
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w500,
