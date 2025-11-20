@@ -335,63 +335,64 @@ class _AuthPageState extends State<AuthPage> {
   }
 
   Future<void> _handleLogin() async {
-    if (!_loginFormKey.currentState!.validate() || _isLoading) return;
+  if (!_loginFormKey.currentState!.validate() || _isLoading) return;
 
-    setState(() => _isLoading = true);
+  setState(() => _isLoading = true);
 
-    try {
-      final response = await ApiService.post('/auth/login', {
-        'email': _loginEmailController.text,
-        'password': _loginPasswordController.text,
-      }).timeout(
-        const Duration(seconds: 10),
-        onTimeout: () {
-          throw Exception('登入請求超時,請檢查網絡連接');
-        },
+  try {
+    // ✅ 在整個請求上設置 timeout
+    final response = await ApiService.post('/auth/login', {
+      'email': _loginEmailController.text,
+      'password': _loginPasswordController.text,
+    }).timeout(
+      const Duration(seconds: 10),
+      onTimeout: () {
+        throw Exception('登入請求超時,請檢查網絡連接');
+      },
+    );
+
+    if (response.statusCode == 200) {
+      final responseBody = json.decode(response.body);
+      
+      await TokenService.saveAuthData(
+        token: responseBody['token'] ?? '',
+        userId: responseBody['user']['id'] ?? '',
+        userName: responseBody['user']['name'] ?? '',
+        userEmail: responseBody['user']['email'] ?? '',
       );
 
-      if (response.statusCode == 200) {
-        final responseBody = json.decode(response.body);
-        
-        await TokenService.saveAuthData(
-          token: responseBody['token'] ?? '',
-          userId: responseBody['user']['id'] ?? '',
-          userName: responseBody['user']['name'] ?? '',
-          userEmail: responseBody['user']['email'] ?? '',
-        );
-
-        _showSnackBar('登入成功!歡迎回來。');
-        
-        // ✅ 先跳轉,再在背景設定 FCM (非阻塞)
+      _showSnackBar('登入成功!歡迎回來。');
+      
+      // ✅ 立即跳轉，不等待任何其他操作
+      if (mounted) {
         widget.onLoginSuccess();
-        
-        // Setup push notifications only on Android/iOS (在背景執行)
+      }
+      
+      // ✅ 完全在背景執行 FCM 設置（登入後執行，不阻塞 UI）
+      Future.delayed(const Duration(milliseconds: 500), () {
         if (!kIsWeb && (defaultTargetPlatform == TargetPlatform.android || 
                         defaultTargetPlatform == TargetPlatform.iOS)) {
-          setupPushNotifications().timeout(
-            const Duration(seconds: 5),
-            onTimeout: () {
-              print('⚠️ FCM 設定超時,將在背景重試');
-              return;
-            },
-          ).catchError((error) {
-            print('⚠️ FCM 設定失敗: $error');
+          setupPushNotifications().catchError((error) {
+            print('⚠️ FCM 背景設置失敗: $error');
           });
-        } else {
-          print('ℹ️ Windows/Web 平台跳過 FCM 設定');
         }
-        
-      } else {
-        final responseBody = json.decode(response.body);
-        _showSnackBar(responseBody['message'] ?? '登入失敗', isError: true);
-      }
-    } catch (e) {
-      print('登入錯誤: $e');
-      _showSnackBar('連線失敗,請檢查伺服器是否運行。', isError: true);
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
+      });
+      
+    } else {
+      final responseBody = json.decode(response.body);
+      _showSnackBar(responseBody['message'] ?? '登入失敗', isError: true);
     }
+  } catch (e) {
+    print('登入錯誤: $e');
+    if (e.toString().contains('超時')) {
+      _showSnackBar('連線超時,請檢查網絡連接', isError: true);
+    } else {
+      _showSnackBar('連線失敗,請檢查伺服器是否運行。', isError: true);
+    }
+  } finally {
+    if (mounted) setState(() => _isLoading = false);
   }
+}
 
   @override
   Widget build(BuildContext context) {
