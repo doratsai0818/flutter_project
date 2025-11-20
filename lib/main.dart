@@ -7,6 +7,8 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:iot_project/config.dart';
 import 'package:flutter_localizations/flutter_localizations.dart'; // ✅ 新增
+// 在文件開頭添加導入
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 // ✅ 修改 Firebase 相關導入 - 使用條件導入
 import 'package:firebase_core/firebase_core.dart';
@@ -23,6 +25,10 @@ import 'package:iot_project/sensor_data_page.dart';
 import 'package:iot_project/energy_saving_settings_page.dart';
 // ✅ 需要在文件開頭添加這個導入
 import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
+
+// 創建全局變量
+final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = 
+    FlutterLocalNotificationsPlugin();
 
 // ✅ 修改背景訊息處理器 - 只在移動平台有效
 @pragma('vm:entry-point')
@@ -577,9 +583,8 @@ class _AuthPageState extends State<AuthPage> {
   }
 }
 
-// ✅ 修改 setupPushNotifications 函數
+// 修改 setupPushNotifications 函數
 Future<void> setupPushNotifications() async {
-  // ⚠️ 只在 Android/iOS 平台執行
   if (kIsWeb || (defaultTargetPlatform != TargetPlatform.android && 
                  defaultTargetPlatform != TargetPlatform.iOS)) {
     print('ℹ️ 當前平台不支援 FCM 推播通知');
@@ -588,6 +593,32 @@ Future<void> setupPushNotifications() async {
   
   try {
     final messaging = FirebaseMessaging.instance;
+    
+    // ✅ 1. 初始化本地通知(用於前景通知)
+    const AndroidInitializationSettings androidSettings = 
+        AndroidInitializationSettings('@mipmap/ic_launcher');
+    
+    const InitializationSettings initSettings = InitializationSettings(
+      android: androidSettings,
+    );
+    
+    await flutterLocalNotificationsPlugin.initialize(initSettings);
+    
+    // ✅ 2. 創建 Android 通知頻道
+    const AndroidNotificationChannel channel = AndroidNotificationChannel(
+      'smart_home_alerts', // 必須與後端一致
+      '智慧家庭警報',
+      description: '接收設備異常、用電警告等重要通知',
+      importance: Importance.high,
+      playSound: true,
+      enableVibration: true,
+    );
+    
+    await flutterLocalNotificationsPlugin
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>() 
+        ?.createNotificationChannel(channel); // 修正語法錯誤
+    print('✅ Android 通知頻道已創建');
     
     // 請求通知權限
     final settings = await messaging.requestPermission(
@@ -599,8 +630,6 @@ Future<void> setupPushNotifications() async {
     
     if (settings.authorizationStatus == AuthorizationStatus.authorized) {
       print('✅ 用戶已授權通知');
-    } else if (settings.authorizationStatus == AuthorizationStatus.provisional) {
-      print('⚠️ 用戶已授予臨時通知權限');
     } else {
       print('❌ 用戶拒絕通知權限');
       return;
@@ -620,21 +649,36 @@ Future<void> setupPushNotifications() async {
         
         if (response.statusCode == 200) {
           print('✅ FCM Token 已上傳到伺服器');
-        } else {
-          print('⚠️ FCM Token 上傳失敗: ${response.statusCode}');
         }
       } catch (e) {
         print('❌ 上傳 FCM Token 時發生錯誤: $e');
       }
-    } else {
-      print('❌ 無法獲取 FCM Token');
     }
     
-    // 監聽前台訊息
-    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+    // ✅ 3. 監聽前台訊息(APP 開啟時)
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
       print('📨 收到前台訊息');
       print('標題: ${message.notification?.title}');
       print('內容: ${message.notification?.body}');
+      
+      // 在前台顯示通知
+      if (message.notification != null) {
+        await flutterLocalNotificationsPlugin.show(
+          message.hashCode,
+          message.notification!.title,
+          message.notification!.body,
+          NotificationDetails(
+            android: AndroidNotificationDetails(
+              channel.id,
+              channel.name,
+              channelDescription: channel.description,
+              importance: Importance.high,
+              priority: Priority.high,
+              icon: '@mipmap/ic_launcher',
+            ),
+          ),
+        );
+      }
     });
     
     // 監聽通知點擊

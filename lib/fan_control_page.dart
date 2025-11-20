@@ -220,6 +220,7 @@ class _FanControlPageState extends State<FanControlPage> {
 }
   
   // 更新本地狀態(用於 UI 同步)
+  // 更新本地狀態(用於 UI 同步)
   Future<void> _updateLocalState(String endpoint, Map<String, dynamic> body) async {
     setState(() {
       switch (endpoint) {
@@ -232,19 +233,37 @@ class _FanControlPageState extends State<FanControlPage> {
           if (_fanSpeed > 0) _isFanOn = true;
           break;
         case 'oscillation':
-          _isOscillationOn = body['oscillation'] ?? false;
+          // ✅ 切換狀態
+          _isOscillationOn = !_isOscillationOn;
           break;
         case 'verticalSwing':
-          _isVerticalSwingOn = body['verticalSwing'] ?? false;
+          // ✅ 切換狀態
+          _isVerticalSwingOn = !_isVerticalSwingOn;
           break;
         case 'mode':
-          _currentMode = body['mode'] ?? 'normal';
+          // ✅ 循環切換模式
+          switch (_currentMode) {
+            case 'normal':
+              _currentMode = 'natural';
+              break;
+            case 'natural':
+              _currentMode = 'sleep';
+              break;
+            case 'sleep':
+              _currentMode = 'eco';
+              break;
+            case 'eco':
+            default:
+              _currentMode = 'normal';
+          }
           break;
         case 'mute':
-          _isMuteOn = body['isMuteOn'] ?? false;
+          // ✅ 切換狀態
+          _isMuteOn = !_isMuteOn;
           break;
         case 'display':
-          _isDisplayOn = body['isDisplayOn'] ?? true;
+          // ✅ 切換狀態
+          _isDisplayOn = !_isDisplayOn;
           break;
       }
     });
