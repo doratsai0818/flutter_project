@@ -153,8 +153,8 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
     }
   }
 
-  /// 獲取閾值設定
-  Future<void> _fetchAlertThresholds() async {
+  // 獲取閾值設定
+Future<void> _fetchAlertThresholds() async {
     try {
       final response = await ApiService.get('/alert/thresholds');
       
@@ -163,8 +163,7 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
         
         if (mounted) {
           setState(() {
-            // ✅ 更新欄位對應
-            _humidityHighThreshold = _toDouble(data['temp_high_threshold']) ?? 28.0;
+            _humidityHighThreshold = _toDouble(data['humidity_high_threshold']) ?? 70.0;  // ✅ 新欄位
             _tempHighThreshold = _toDouble(data['temp_critical_threshold']) ?? 32.0;
             _powerSpikeThreshold = _toDouble(data['power_spike_threshold']) ?? 2000.0;
             _offlineTimeoutSec = _toInt(data['offline_timeout_sec']) ?? 300;
@@ -174,7 +173,7 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
     } catch (e) {
       print('獲取閾值設定失敗: $e');
     }
-  }
+}
 
   /// 安全地轉換為 double
   double? _toDouble(dynamic value) {
@@ -436,10 +435,10 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
                   return;
                 }
 
-                // 發送更新請求
+                // 儲存閾值
                 final response = await ApiService.post('/alert/thresholds', {
-                  'tempHighThreshold': humidity,      // ✅ 對應到後端的 temp_high_threshold
-                  'tempCriticalThreshold': temp,      // ✅ 對應到後端的 temp_critical_threshold
+                  'humidityHighThreshold': humidity,      // ✅ 濕度閾值
+                  'tempCriticalThreshold': temp,          // ✅ 溫度閾值
                   'powerSpikeThreshold': power,
                   'offlineTimeoutSec': offlineMin * 60,
                 });

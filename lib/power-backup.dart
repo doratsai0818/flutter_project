@@ -6,11 +6,6 @@ import 'package:iot_project/config.dart';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
-import 'dart:io';
-import 'package:path_provider/path_provider.dart';
-import 'package:csv/csv.dart';
-import 'package:excel/excel.dart' as excel_pkg;
-import 'package:share_plus/share_plus.dart';
 
 // Token 管理服務
 class TokenService {
@@ -261,194 +256,20 @@ class _PowerMonitoringPageState extends State<PowerMonitoringPage> {
     }
   }
 
-  /// 匯出為 CSV
-  Future<void> _exportToCSV() async {
-    try {
-      if (_chartData.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('無數據可匯出')),
-        );
-        return;
-      }
-
-      List<List<dynamic>> rows = [];
-      
-      // 標題行
-      rows.add([_getTableHeaderText(), '區間用電量 (Wh)']);
-      
-      // 數據行
-      final sortedKeys = _chartData.keys.toList()
-        ..sort((a, b) => (_safeToDouble(a) as Comparable).compareTo(_safeToDouble(b)));
-      
-      for (var key in sortedKeys) {
-        String label;
-        if (_selectedChartMode == ChartMode.daily) {
-          int hour = _safeToDouble(key).toInt();
-          int nextHour = (hour + 1) % 24;
-          label = '$hour-$nextHour';
-        } else if (_selectedChartMode == ChartMode.weekly) {
-          List<String> weekdays = ['一', '二', '三', '四', '五', '六', '日'];
-          int index = _safeToDouble(key).toInt();
-          label = (index >= 1 && index <= 7) ? weekdays[index - 1] : key.toString();
-        } else {
-          label = _safeToDouble(key).toInt().toString();
-        }
-        
-        rows.add([label, _chartData[key]!.toStringAsFixed(1)]);
-      }
-      
-      String csv = const ListToCsvConverter().convert(rows);
-      
-      final directory = await getApplicationDocumentsDirectory();
-      final timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
-      final path = '${directory.path}/power_report_$timestamp.csv';
-      
-      final file = File(path);
-      await file.writeAsString(csv);
-      
-      await Share.shareXFiles([XFile(path)], text: '用電報表');
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('CSV 已匯出: $path')),
-      );
-      
-    } catch (e) {
-      print('匯出 CSV 失敗: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('匯出失敗: $e')),
-      );
-    }
-  }
-
-  /// 匯出為 Excel
-  Future<void> _exportToExcel() async {
-    try {
-      if (_chartData.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('無數據可匯出')),
-        );
-        return;
-      }
-
-      var excelFile = excel_pkg.Excel.createExcel();
-      
-      // 刪除默認的 Sheet1
-      if (excelFile.tables.containsKey('Sheet1')) {
-        excelFile.delete('Sheet1');
-      }
-      
-      // 創建新的工作表
-      excelFile.copy('Sheet1', '用電報表');
-      excel_pkg.Sheet sheet = excelFile['用電報表'];
-      
-      // 🔧 修正:標題行 (使用 TextCellValue)
-      sheet.cell(excel_pkg.CellIndex.indexByString('A1')).value = 
-          excel_pkg.TextCellValue(_getTableHeaderText());
-      sheet.cell(excel_pkg.CellIndex.indexByString('B1')).value = 
-          excel_pkg.TextCellValue('區間用電量 (Wh)');
-      
-      // 數據行
-      final sortedKeys = _chartData.keys.toList()
-        ..sort((a, b) => (_safeToDouble(a) as Comparable).compareTo(_safeToDouble(b)));
-      
-      int rowIndex = 2; // 從第二行開始(第一行是標題)
-      for (var key in sortedKeys) {
-        String label;
-        if (_selectedChartMode == ChartMode.daily) {
-          int hour = _safeToDouble(key).toInt();
-          int nextHour = (hour + 1) % 24;
-          label = '$hour-$nextHour';
-        } else if (_selectedChartMode == ChartMode.weekly) {
-          List<String> weekdays = ['一', '二', '三', '四', '五', '六', '日'];
-          int index = _safeToDouble(key).toInt();
-          label = (index >= 1 && index <= 7) ? weekdays[index - 1] : key.toString();
-        } else {
-          label = _safeToDouble(key).toInt().toString();
-        }
-        
-        // 🔧 修正:數據行 (使用 TextCellValue)
-        sheet.cell(excel_pkg.CellIndex.indexByString('A$rowIndex')).value = 
-            excel_pkg.TextCellValue(label);
-        sheet.cell(excel_pkg.CellIndex.indexByString('B$rowIndex')).value = 
-            excel_pkg.TextCellValue(_chartData[key]!.toStringAsFixed(1));
-        rowIndex++;
-      }
-      
-      final directory = await getApplicationDocumentsDirectory();
-      final timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
-      final path = '${directory.path}/power_report_$timestamp.xlsx';
-      
-      final file = File(path);
-      var bytes = excelFile.encode();
-      if (bytes != null) {
-        await file.writeAsBytes(bytes);
-        await Share.shareXFiles([XFile(path)], text: '用電報表');
-        
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Excel 已匯出: $path')),
-        );
-      }
-      
-    } catch (e) {
-      print('匯出 Excel 失敗: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('匯出失敗: $e')),
-      );
-    }
-  }
-
-    /// 顯示匯出格式選擇對話框
-    void _showExportDialog() {
-      showDialog(
-        context: context,
-        builder: (BuildContext context) {
-          return AlertDialog(
-            title: const Text('選擇匯出格式'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ListTile(
-                  leading: const Icon(Icons.description, color: Colors.green),
-                  title: const Text('CSV檔'),
-                  onTap: () {
-                    Navigator.of(context).pop();
-                    _exportToCSV();
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.table_chart, color: Colors.blue),
-                  title: const Text('Excel檔'),
-                  onTap: () {
-                    Navigator.of(context).pop();
-                    _exportToExcel();
-                  },
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('取消'),
-              ),
-            ],
-          );
-        },
-      );
-    }
-
-/// 處理歷史資料並生成圖表資料 - 計算每個時間區間的用電增量
+/// 處理歷史資料並生成圖表資料 - 四個插座加總累積用電量
 void _processHistoricalDataSum(List<List<dynamic>> allDevicesLogs) {
-  Map<dynamic, double> intervalConsumption = {}; // 直接儲存各時間點的區間用電量
+  Map<dynamic, double> totalEnergyByKey = {};
 
   // 遍歷每個插座的記錄
   for (var logs in allDevicesLogs) {
     if (logs.isEmpty) continue;
 
-    // 📊 按時間分組 - 為每個時間區間(小時/星期/日)收集所有記錄點
+    // 按時間分組
     Map<dynamic, List<Map<String, dynamic>>> groupedData = {};
 
     for (var log in logs) {
       try {
+        // 解析為 UTC 時間,然後轉換為本地時間
         final timestampUtc = DateTime.parse(log['timestamp']);
         final timestamp = timestampUtc.toLocal();
         final power = _safeToDouble(log['power_w']);
@@ -457,20 +278,19 @@ void _processHistoricalDataSum(List<List<dynamic>> allDevicesLogs) {
         
         switch (_selectedChartMode) {
           case ChartMode.daily:
-            key = timestamp.hour; // 按小時分組
+            key = timestamp.hour;
             break;
           case ChartMode.weekly:
-            key = timestamp.weekday; // 按星期幾分組
+            key = timestamp.weekday;
             break;
           case ChartMode.monthly:
-            key = timestamp.day; // 按日期分組
+            key = timestamp.day;
             break;
         }
 
         if (!groupedData.containsKey(key)) {
           groupedData[key] = [];
         }
-        
         groupedData[key]!.add({
           'timestamp': timestamp,
           'power': power,
@@ -481,43 +301,42 @@ void _processHistoricalDataSum(List<List<dynamic>> allDevicesLogs) {
       }
     }
 
-    // ⚡ 計算該插座每組的區間用電量 (Wh) - 使用梯形積分法
+    // 計算該插座每組的累積用電量 (Wh)
     groupedData.forEach((key, records) {
-      if (records.isEmpty) return;
-      
-      // 按時間排序
-      records.sort((a, b) => a['timestamp'].compareTo(b['timestamp']));
-      
-      double totalEnergy = 0.0;
-      
-      // 🔹 梯形積分法:計算相鄰兩點之間的能量
-      for (int i = 0; i < records.length - 1; i++) {
-        DateTime t1 = records[i]['timestamp'];
-        DateTime t2 = records[i + 1]['timestamp'];
-        double p1 = records[i]['power'];
-        double p2 = records[i + 1]['power'];
+      if (records.isNotEmpty) {
+        // 按時間排序
+        records.sort((a, b) => a['timestamp'].compareTo(b['timestamp']));
         
-        // 時間差(小時)
-        double timeDiffHours = t2.difference(t1).inSeconds / 3600.0;
+        double totalEnergy = 0.0;
         
-        // 梯形積分公式: E = (P1 + P2) / 2 * ΔT
-        double energy = (p1 + p2) / 2 * timeDiffHours;
-        totalEnergy += energy;
+        // 使用梯形法則計算累積用電量
+        for (int i = 0; i < records.length - 1; i++) {
+          DateTime t1 = records[i]['timestamp'];
+          DateTime t2 = records[i + 1]['timestamp'];
+          double p1 = records[i]['power'];
+          double p2 = records[i + 1]['power'];
+          
+          // 計算時間差(小時)
+          double timeDiffHours = t2.difference(t1).inSeconds / 3600.0;
+          
+          // 梯形法則: Energy = (P1 + P2) / 2 * ΔT
+          double energy = (p1 + p2) / 2 * timeDiffHours;
+          totalEnergy += energy;
+        }
+        
+        // 累加到總能量
+        if (!totalEnergyByKey.containsKey(key)) {
+          totalEnergyByKey[key] = 0.0;
+        }
+        totalEnergyByKey[key] = totalEnergyByKey[key]! + totalEnergy;
       }
-      
-      // 累加到總能量 - 多個插座的用電量相加
-      if (!intervalConsumption.containsKey(key)) {
-        intervalConsumption[key] = 0.0;
-      }
-      intervalConsumption[key] = intervalConsumption[key]! + totalEnergy;
     });
   }
 
-  // 🎯 直接使用計算出的區間用電量(不需要再做累積值相減)
-  print('處理後的圖表資料: $intervalConsumption');
+  print('處理後的圖表資料: $totalEnergyByKey');
 
   setState(() {
-    _chartData = intervalConsumption;
+    _chartData = totalEnergyByKey;
     if (_chartData.isEmpty) {
       _errorMessage = '此時間範圍內無資料';
     }
@@ -759,7 +578,7 @@ void _processHistoricalDataSum(List<List<dynamic>> allDevicesLogs) {
                 child: Column(
                   children: [
                     Text(
-                      '區間用電量 (Wh) - ${_getChartModeText()}',
+                      '累積用電量 (Wh) - ${_getChartModeText()}',
                       style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 20),
@@ -767,7 +586,7 @@ void _processHistoricalDataSum(List<List<dynamic>> allDevicesLogs) {
                       height: 250,
                       child: _chartData.isEmpty
                           ? const Center(child: Text('此時間範圍內無資料'))
-                          : BarChart(_buildBarChartData()),
+                          : LineChart(_buildLineChartData()),
                     ),
                     const SizedBox(height: 20),
                     // 詳細數據表格
@@ -777,21 +596,55 @@ void _processHistoricalDataSum(List<List<dynamic>> allDevicesLogs) {
               ),
               const SizedBox(height: 32),
 
-              // 匯出報表按鈕
-              Center(
-                child: ElevatedButton.icon(
-                  onPressed: _showExportDialog,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Theme.of(context).primaryColor,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-                    shape: RoundedRectangleBorder(
+              // 匯出報表和下拉選單
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('匯出報表功能待實現')),
+                      );
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Theme.of(context).primaryColor,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 25, vertical: 15),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    icon: const Icon(Icons.download),
+                    label: const Text('匯出報表', style: TextStyle(fontSize: 18)),
+                  ),
+                  const SizedBox(width: 16),
+
+                  // 下拉選單按鈕
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).primaryColor,
                       borderRadius: BorderRadius.circular(10),
                     ),
+                    child: PopupMenuButton<String>(
+                      icon: const Icon(Icons.keyboard_arrow_down, color: Colors.white, size: 30),
+                      onSelected: (String result) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('選擇匯出為 $result 格式')),
+                        );
+                      },
+                      itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+                        const PopupMenuItem<String>(
+                          value: 'CSV檔',
+                          child: Text('CSV檔'),
+                        ),
+                        const PopupMenuItem<String>(
+                          value: 'Excel檔',
+                          child: Text('Excel檔'),
+                        ),
+                      ],
+                    ),
                   ),
-                  icon: const Icon(Icons.download, size: 24),
-                  label: const Text('匯出報表', style: TextStyle(fontSize: 18)),
-                ),
+                ],
               ),
               const SizedBox(height: 20),
             ],
@@ -947,7 +800,7 @@ void _processHistoricalDataSum(List<List<dynamic>> allDevicesLogs) {
     );
   }
 
-  /// 構建詳細數據表格 - 顯示四插座加總累積用電量(移除成長率)
+  /// 構建詳細數據表格 - 顯示四插座加總累積用電量
   Widget _buildPowerDetailsTable() {
     if (_chartData.isEmpty) {
       return const Center(
@@ -982,8 +835,16 @@ void _processHistoricalDataSum(List<List<dynamic>> allDevicesLogs) {
               const Expanded(
                 child: Center(
                   child: Text(
-                    '區間用電量 (Wh)',
+                    '累積用電量 (Wh)',
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Center(
+                  child: Text(
+                    _getGrowthRateHeaderText(),
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                   ),
                 ),
               ),
@@ -996,14 +857,36 @@ void _processHistoricalDataSum(List<List<dynamic>> allDevicesLogs) {
         ...sortedKeys.map((key) {
           try {
             final double energy = _safeToDouble(_chartData[key]);
-            return _buildTableRow(key, energy);
+            String growthRate = '-';
+            int index = sortedKeys.indexOf(key);
+            if (index > 0) {
+              final double previousEnergy = _safeToDouble(_chartData[sortedKeys[index - 1]]);
+              if (previousEnergy != 0) {
+                final double rate = (energy - previousEnergy) / previousEnergy * 100;
+                growthRate = '${rate.toStringAsFixed(1)}%';
+              }
+            }
+
+            return _buildTableRow(key, energy, growthRate);
           } catch (e) {
             print('構建表格行時發生錯誤: $e');
-            return _buildTableRow(key, 0.0);
+            return _buildTableRow(key, 0.0, '-');
           }
         }).toList(),
       ],
     );
+  }
+
+  /// 根據模式獲取表格成長率標題文字
+  String _getGrowthRateHeaderText() {
+    switch (_selectedChartMode) {
+      case ChartMode.daily:
+        return '小時成長率';
+      case ChartMode.weekly:
+        return '日成長率';
+      case ChartMode.monthly:
+        return '日成長率';
+    }
   }
 
   /// 根據模式獲取表格標題文字
@@ -1018,17 +901,15 @@ void _processHistoricalDataSum(List<List<dynamic>> allDevicesLogs) {
     }
   }
 
-
-  /// 表格行(移除成長率)
-  Widget _buildTableRow(dynamic label, double energy) {
+  /// 表格行
+  Widget _buildTableRow(
+    dynamic label,
+    double energy,
+    String growthRate,
+  ) {
     String formattedLabel;
     try {
-      if (_selectedChartMode == ChartMode.daily) {
-        // 日模式:顯示時間區間 (如 22-23)
-        int hour = _safeToDouble(label).toInt();
-        int nextHour = (hour + 1) % 24;
-        formattedLabel = '$hour-$nextHour';
-      } else if (_selectedChartMode == ChartMode.weekly) {
+      if (_selectedChartMode == ChartMode.weekly) {
         List<String> weekdays = ['一', '二', '三', '四', '五', '六', '日'];
         int index = _safeToDouble(label).toInt();
         if (index >= 1 && index <= 7) {
@@ -1064,60 +945,74 @@ void _processHistoricalDataSum(List<List<dynamic>> allDevicesLogs) {
               ),
             ),
           ),
+          Expanded(
+            child: Center(
+              child: Text(
+                growthRate,
+                style: TextStyle(
+                  color: growthRate.startsWith('-') 
+                      ? Colors.black 
+                      : (growthRate.contains('-') ? Colors.red : Colors.green),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  /// 構建長條圖資料
-  BarChartData _buildBarChartData() {
+  /// 構建折線圖資料
+  LineChartData _buildLineChartData() {
     if (_chartData.isEmpty) {
-      return BarChartData(
+      return LineChartData(
         titlesData: const FlTitlesData(show: false),
         borderData: FlBorderData(show: false),
         gridData: const FlGridData(show: false),
-        barGroups: [],
+        lineBarsData: [],
       );
     }
 
-    final List<MapEntry<dynamic, double>> sortedEntries = _chartData.entries.toList()
-      ..sort((a, b) => _safeToDouble(a.key).compareTo(_safeToDouble(b.key)));
+    final List<FlSpot> spots = _chartData.entries.map((entry) {
+      return FlSpot(_safeToDouble(entry.key), _safeToDouble(entry.value));
+    }).toList()
+      ..sort((a, b) => a.x.compareTo(b.x));
 
-    double maxY = sortedEntries.map((e) => e.value).reduce((a, b) => a > b ? a : b) + 10;
-    if (maxY == 10) maxY = 100;
-
-    final barGroups = sortedEntries.asMap().entries.map((entry) {
-      int index = entry.key;
-      double value = entry.value.value;
+    double minX = 0.0, maxX = 1.0, minY = 0.0, maxY = 100.0;
+    
+    try {
+      final xValues = spots.map((e) => e.x).toList();
+      final yValues = spots.map((e) => e.y).toList();
       
-      return BarChartGroupData(
-        x: index,
-        barRods: [
-          BarChartRodData(
-            toY: value,
-            color: Theme.of(context).primaryColor,
-            width: 16,
-            borderRadius: BorderRadius.circular(4),
-            backDrawRodData: BackgroundBarChartRodData(
-              show: true,
-              toY: maxY,
-              color: Colors.grey.withOpacity(0.1),
-            ),
-          ),
-        ],
-      );
-    }).toList();
+      if (xValues.isNotEmpty && yValues.isNotEmpty) {
+        minX = xValues.reduce((a, b) => a < b ? a : b);
+        maxX = xValues.reduce((a, b) => a > b ? a : b);
+        minY = (yValues.reduce((a, b) => a < b ? a : b) - 10).clamp(0, double.infinity);
+        maxY = yValues.reduce((a, b) => a > b ? a : b) + 10;
+        
+        if (maxX == minX) maxX = minX + 1;
+        if (maxY == minY) maxY = minY + 100;
+      }
+    } catch (e) {
+      print('計算圖表範圍時發生錯誤: $e');
+    }
 
-    return BarChartData(
-      maxY: maxY,
-      minY: 0,
-      barGroups: barGroups,
+    return LineChartData(
       gridData: FlGridData(
         show: true,
         drawHorizontalLine: true,
-        drawVerticalLine: false,
-        horizontalInterval: maxY / 5,
+        drawVerticalLine: true,
+        horizontalInterval: (maxY - minY) / 5,
+        verticalInterval: _getVerticalInterval(),
         getDrawingHorizontalLine: (value) {
+          return const FlLine(
+            color: Colors.grey,
+            strokeWidth: 0.5,
+          );
+        },
+        getDrawingVerticalLine: (value) {
           return const FlLine(
             color: Colors.grey,
             strokeWidth: 0.5,
@@ -1132,15 +1027,13 @@ void _processHistoricalDataSum(List<List<dynamic>> allDevicesLogs) {
           sideTitles: SideTitles(
             showTitles: true,
             reservedSize: 30,
+            interval: _getBottomTitleInterval(),
             getTitlesWidget: (value, meta) {
-              if (value.toInt() >= sortedEntries.length) return const SizedBox.shrink();
-              
-              final key = sortedEntries[value.toInt()].key;
               return SideTitleWidget(
                 axisSide: meta.axisSide,
                 space: 8.0,
                 child: Text(
-                  _getBottomTitleText(_safeToDouble(key)),
+                  _getBottomTitleText(value),
                   style: const TextStyle(fontSize: 10, color: Colors.black),
                 ),
               );
@@ -1151,7 +1044,7 @@ void _processHistoricalDataSum(List<List<dynamic>> allDevicesLogs) {
           sideTitles: SideTitles(
             showTitles: true,
             reservedSize: 45,
-            interval: maxY / 5,
+            interval: (maxY - minY) / 5,
             getTitlesWidget: (value, meta) {
               return Text(
                 value.toInt().toString(),
@@ -1165,17 +1058,36 @@ void _processHistoricalDataSum(List<List<dynamic>> allDevicesLogs) {
         show: true,
         border: Border.all(color: const Color(0xff37434d), width: 1),
       ),
-      barTouchData: BarTouchData(
-        touchTooltipData: BarTouchTooltipData(
-          getTooltipItem: (group, groupIndex, rod, rodIndex) {
-            final key = sortedEntries[group.x.toInt()].key;
-            return BarTooltipItem(
-              '${_getBottomTitleText(_safeToDouble(key))}\n${rod.toY.toStringAsFixed(1)} Wh',
-              const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-            );
-          },
+      minX: minX,
+      maxX: maxX,
+      minY: minY,
+      maxY: maxY,
+      lineBarsData: [
+        LineChartBarData(
+          spots: spots,
+          isCurved: true,
+          gradient: LinearGradient(
+            colors: [
+              Theme.of(context).primaryColor,
+              Theme.of(context).primaryColor.withOpacity(0.5),
+            ],
+          ),
+          barWidth: 3,
+          isStrokeCapRound: true,
+          dotData: const FlDotData(show: false),
+          belowBarData: BarAreaData(
+            show: true,
+            gradient: LinearGradient(
+              colors: [
+                Theme.of(context).primaryColor.withOpacity(0.3),
+                Theme.of(context).primaryColor.withOpacity(0),
+              ],
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+            ),
+          ),
         ),
-      ),
+      ],
     );
   }
 
@@ -1203,14 +1115,12 @@ void _processHistoricalDataSum(List<List<dynamic>> allDevicesLogs) {
     }
   }
 
-  /// 根據選定的模式獲得 X 軸標籤文字
+  /// 根據選定的模式獲取 X 軸標籤文字
   String _getBottomTitleText(double value) {
     try {
       switch (_selectedChartMode) {
         case ChartMode.daily:
-          int hour = value.toInt();
-          int nextHour = (hour + 1) % 24;
-          return '$hour-$nextHour';
+          return '${value.toInt()}時';
         case ChartMode.weekly:
           List<String> weekdays = ['一', '二', '三', '四', '五', '六', '日'];
           int index = value.toInt();

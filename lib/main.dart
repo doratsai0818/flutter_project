@@ -1,16 +1,16 @@
-// main.dart
+// main.dart - Fixed Version
 
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kIsWeb; // ✅ 新增
+import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:iot_project/config.dart';
-import 'package:flutter_localizations/flutter_localizations.dart'; // ✅ 新增
-// 在文件開頭添加導入
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'dart:typed_data';
 
-// ✅ 修改 Firebase 相關導入 - 使用條件導入
+// Firebase imports with conditional support
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'firebase_options.dart';
@@ -23,44 +23,52 @@ import 'package:iot_project/my_account_page.dart';
 import 'package:iot_project/fan_control_page.dart';
 import 'package:iot_project/sensor_data_page.dart';
 import 'package:iot_project/energy_saving_settings_page.dart';
-// ✅ 需要在文件開頭添加這個導入
-import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
 
-// 創建全局變量
+// Global notification plugin
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = 
     FlutterLocalNotificationsPlugin();
 
-// ✅ 修改背景訊息處理器 - 只在移動平台有效
+// ============================================
+// Background notification handler
+// ============================================
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  // 只在非 Web 和非桌面平台執行
   if (!kIsWeb && (defaultTargetPlatform == TargetPlatform.android || 
                   defaultTargetPlatform == TargetPlatform.iOS)) {
-    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-    print('📬 背景訊息: ${message.notification?.title}');
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+    
+    print('📢 背景通知已接收');
+    print('標題: ${message.notification?.title}');
+    print('內容: ${message.notification?.body}');
   }
 }
 
-// ✅ 修改 main 函數
+// ============================================
+// Main function - FIXED
+// ============================================
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
-  // ✅ 只在 Android/iOS 上初始化 Firebase
+  // Only setup push notifications on Android/iOS
   if (!kIsWeb && (defaultTargetPlatform == TargetPlatform.android || 
                   defaultTargetPlatform == TargetPlatform.iOS)) {
     try {
+      // Initialize Firebase
       await Firebase.initializeApp(
         options: DefaultFirebaseOptions.currentPlatform,
       );
-      print('✅ Firebase 初始化成功');
       
-      // 設定背景訊息處理器
+      // Register background message handler
       FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+      
+      print('✅ Firebase 已初始化');
     } catch (e) {
-      print('❌ Firebase 初始化失敗: $e');
+      print('⚠️ Firebase 初始化失敗: $e');
     }
   } else {
-    print('ℹ️ 當前平台不支援 Firebase 推播通知');
+    print('ℹ️ Windows/Web 平台跳過 Firebase 設定');
   }
   
   runApp(const MyApp());
@@ -79,17 +87,16 @@ class MyApp extends StatelessWidget {
         useMaterial3: true,
       ),
       
-      // ✅ 添加本地化支援
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
       supportedLocales: const [
-        Locale('zh', 'TW'), // 繁體中文
-        Locale('en', 'US'), // 英文
+        Locale('zh', 'TW'),
+        Locale('en', 'US'),
       ],
-      locale: const Locale('zh', 'TW'), // 預設語言
+      locale: const Locale('zh', 'TW'),
       
       home: const AuthWrapper(),
       debugShowCheckedModeBanner: false,
@@ -97,7 +104,7 @@ class MyApp extends StatelessWidget {
   }
 }
 
-// Token 管理服務 (保持不變)
+// Token Service
 class TokenService {
   static const String _tokenKey = 'auth_token';
   static const String _userIdKey = 'user_id';
@@ -150,7 +157,7 @@ class TokenService {
   }
 }
 
-// HTTP 請求服務 (保持不變)
+// API Service
 class ApiService {
   static Future<Map<String, String>> _getHeaders() async {
     final token = await TokenService.getToken();
@@ -188,7 +195,7 @@ class ApiService {
   }
 }
 
-// AuthWrapper (保持不變)
+// AuthWrapper
 class AuthWrapper extends StatefulWidget {
   const AuthWrapper({super.key});
 
@@ -251,7 +258,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
   }
 }
 
-// AuthPage (保持不變,只修改 _handleLogin 方法)
+// AuthPage
 class AuthPage extends StatefulWidget {
   final VoidCallback onLoginSuccess;
   const AuthPage({super.key, required this.onLoginSuccess});
@@ -327,7 +334,6 @@ class _AuthPageState extends State<AuthPage> {
     }
   }
 
-  // ✅ 修改登入方法
   Future<void> _handleLogin() async {
     if (!_loginFormKey.currentState!.validate() || _isLoading) return;
 
@@ -337,7 +343,12 @@ class _AuthPageState extends State<AuthPage> {
       final response = await ApiService.post('/auth/login', {
         'email': _loginEmailController.text,
         'password': _loginPasswordController.text,
-      });
+      }).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw Exception('登入請求超時,請檢查網絡連接');
+        },
+      );
 
       if (response.statusCode == 200) {
         final responseBody = json.decode(response.body);
@@ -351,26 +362,31 @@ class _AuthPageState extends State<AuthPage> {
 
         _showSnackBar('登入成功!歡迎回來。');
         
-        // ✅ 只在 Android/iOS 上設定推播通知
+        // ✅ 先跳轉,再在背景設定 FCM (非阻塞)
+        widget.onLoginSuccess();
+        
+        // Setup push notifications only on Android/iOS (在背景執行)
         if (!kIsWeb && (defaultTargetPlatform == TargetPlatform.android || 
                         defaultTargetPlatform == TargetPlatform.iOS)) {
-          try {
-            await setupPushNotifications();
-            print('✓ FCM Token 已上傳');
-          } catch (fcmError) {
-            print('⚠️ FCM 設定失敗: $fcmError');
-            // 不阻擋登入流程
-          }
+          setupPushNotifications().timeout(
+            const Duration(seconds: 5),
+            onTimeout: () {
+              print('⚠️ FCM 設定超時,將在背景重試');
+              return;
+            },
+          ).catchError((error) {
+            print('⚠️ FCM 設定失敗: $error');
+          });
         } else {
           print('ℹ️ Windows/Web 平台跳過 FCM 設定');
         }
         
-        widget.onLoginSuccess();
       } else {
         final responseBody = json.decode(response.body);
         _showSnackBar(responseBody['message'] ?? '登入失敗', isError: true);
       }
     } catch (e) {
+      print('登入錯誤: $e');
       _showSnackBar('連線失敗,請檢查伺服器是否運行。', isError: true);
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -583,7 +599,9 @@ class _AuthPageState extends State<AuthPage> {
   }
 }
 
-// 修改 setupPushNotifications 函數
+// ============================================
+// FIXED: Push Notifications Setup
+// ============================================
 Future<void> setupPushNotifications() async {
   if (kIsWeb || (defaultTargetPlatform != TargetPlatform.android && 
                  defaultTargetPlatform != TargetPlatform.iOS)) {
@@ -594,7 +612,7 @@ Future<void> setupPushNotifications() async {
   try {
     final messaging = FirebaseMessaging.instance;
     
-    // ✅ 1. 初始化本地通知(用於前景通知)
+    // 1. Initialize local notifications
     const AndroidInitializationSettings androidSettings = 
         AndroidInitializationSettings('@mipmap/ic_launcher');
     
@@ -602,46 +620,58 @@ Future<void> setupPushNotifications() async {
       android: androidSettings,
     );
     
-    await flutterLocalNotificationsPlugin.initialize(initSettings);
+    await flutterLocalNotificationsPlugin.initialize(
+      initSettings,
+      onDidReceiveNotificationResponse: (NotificationResponse response) {
+        print('📲 用戶點擊了通知: ${response.payload}');
+      },
+    );
     
-    // ✅ 2. 創建 Android 通知頻道
-    const AndroidNotificationChannel channel = AndroidNotificationChannel(
-      'smart_home_alerts', // 必須與後端一致
+    // 2. FIXED: Create Android notification channel
+    final AndroidNotificationChannel channel = AndroidNotificationChannel(
+      'smart_home_alerts',
       '智慧家庭警報',
       description: '接收設備異常、用電警告等重要通知',
-      importance: Importance.high,
+      importance: Importance.max,
       playSound: true,
       enableVibration: true,
+      vibrationPattern: Int64List.fromList([0, 500, 200, 500]),
+      enableLights: true,
+      ledColor: const Color(0xFFFF0000),
+      sound: const RawResourceAndroidNotificationSound('notification'),
     );
     
     await flutterLocalNotificationsPlugin
         .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>() 
-        ?.createNotificationChannel(channel); // 修正語法錯誤
-    print('✅ Android 通知頻道已創建');
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(channel);
     
-    // 請求通知權限
+    print('✅ Android 通知頻道已建立');
+    
+    // 3. Request notification permissions
     final settings = await messaging.requestPermission(
       alert: true,
       badge: true,
       sound: true,
       provisional: false,
+      criticalAlert: false,
     );
     
     if (settings.authorizationStatus == AuthorizationStatus.authorized) {
       print('✅ 用戶已授權通知');
+    } else if (settings.authorizationStatus == AuthorizationStatus.provisional) {
+      print('⚠️ 用戶授予臨時通知權限');
     } else {
       print('❌ 用戶拒絕通知權限');
       return;
     }
     
-    // 獲取 FCM Token
+    // 4. Get FCM Token
     final fcmToken = await messaging.getToken();
     
     if (fcmToken != null) {
-      print('📱 FCM Token: ${fcmToken.substring(0, 30)}...');
+      print('🔑 FCM Token: ${fcmToken.substring(0, 50)}...');
       
-      // 上傳到後端
       try {
         final response = await ApiService.post('/user/fcm-token', {
           'fcm_token': fcmToken,
@@ -649,19 +679,22 @@ Future<void> setupPushNotifications() async {
         
         if (response.statusCode == 200) {
           print('✅ FCM Token 已上傳到伺服器');
+        } else {
+          print('⚠️ 上傳 FCM Token 失敗: ${response.statusCode}');
         }
       } catch (e) {
         print('❌ 上傳 FCM Token 時發生錯誤: $e');
       }
+    } else {
+      print('❌ 無法獲取 FCM Token');
     }
     
-    // ✅ 3. 監聽前台訊息(APP 開啟時)
+    // 5. Listen to foreground notifications
     FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
-      print('📨 收到前台訊息');
+      print('📨 收到前臺通知');
       print('標題: ${message.notification?.title}');
       print('內容: ${message.notification?.body}');
       
-      // 在前台顯示通知
       if (message.notification != null) {
         await flutterLocalNotificationsPlugin.show(
           message.hashCode,
@@ -672,19 +705,26 @@ Future<void> setupPushNotifications() async {
               channel.id,
               channel.name,
               channelDescription: channel.description,
-              importance: Importance.high,
-              priority: Priority.high,
+              importance: Importance.max,
               icon: '@mipmap/ic_launcher',
             ),
           ),
+          payload: message.data.toString(),
         );
       }
     });
     
-    // 監聽通知點擊
+    // 6. Listen to notification taps
     FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
       print('📲 用戶點擊了通知');
       print('數據: ${message.data}');
+      _handleNotificationTap(message.data);
+    });
+    
+    // 7. Listen to token refresh
+    messaging.onTokenRefresh.listen((newToken) {
+      print('🔄 FCM Token 已刷新: ${newToken.substring(0, 50)}...');
+      _uploadNewFcmToken(newToken);
     });
     
   } catch (e) {
@@ -693,7 +733,48 @@ Future<void> setupPushNotifications() async {
   }
 }
 
-// MainScreen (保持完全不變)
+// Handle notification tap
+void _handleNotificationTap(Map<String, dynamic> data) {
+  print('🔍 處理通知點擊: $data');
+  
+  String? alertType = data['alert_type'];
+  
+  switch (alertType) {
+    case 'power_spike':
+    case 'power_overload':
+      print('➡️ 導航到用電監控');
+      break;
+    case 'temp_high':
+    case 'temp_critical':
+      print('➡️ 導航到冷氣控制');
+      break;
+    case 'offline':
+    case 'sensor_error':
+      print('➡️ 導航到感測器監控');
+      break;
+    default:
+      print('➡️ 未知的通知類型');
+  }
+}
+
+// Upload new FCM token
+Future<void> _uploadNewFcmToken(String newToken) async {
+  try {
+    final response = await ApiService.post('/user/fcm-token', {
+      'fcm_token': newToken,
+    });
+    
+    if (response.statusCode == 200) {
+      print('✅ 新 FCM Token 已上傳');
+    } else {
+      print('⚠️ 上傳新 Token 失敗');
+    }
+  } catch (e) {
+    print('❌ 上傳新 Token 發生錯誤: $e');
+  }
+}
+
+// MainScreen
 class MainScreen extends StatefulWidget {
   final VoidCallback onLogout;
   const MainScreen({super.key, required this.onLogout});
@@ -749,22 +830,14 @@ class _MainScreenState extends State<MainScreen> {
   String _getPageTitle(int index) {
     if (_pages == null || index >= _pages!.length) return '智慧節能系統';
     switch (index) {
-      case 0:
-        return '首頁';
-      case 1:
-        return '燈光控制';
-      case 2:
-        return '冷氣控制';
-      case 3:
-        return '用電監控';
-      case 4:
-        return '風扇控制';
-      case 5:
-        return '感測數據監控';
-      case 6:
-        return '節能設定';
-      default:
-        return '智慧節能系統';
+      case 0: return '首頁';
+      case 1: return '燈光控制';
+      case 2: return '冷氣控制';
+      case 3: return '用電監控';
+      case 4: return '風扇控制';
+      case 5: return '感測數據監控';
+      case 6: return '節能設定';
+      default: return '智慧節能系統';
     }
   }
 

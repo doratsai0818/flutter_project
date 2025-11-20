@@ -23,7 +23,7 @@ class _NotificationHistoryPageState extends State<NotificationHistoryPage> {
   int _currentPage = 1;
   int _totalPages = 1;
   int _totalCount = 0;
-  final int _pageSize = 10;
+  final int _pageSize = 6;
   bool _hasNextPage = false;
   bool _hasPreviousPage = false;
   
