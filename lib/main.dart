@@ -21,7 +21,7 @@ import 'package:iot_project/ac_control_page.dart';
 import 'package:iot_project/power_monitoring_page.dart';
 import 'package:iot_project/my_account_page.dart';
 import 'package:iot_project/fan_control_page.dart';
-import 'package:iot_project/sensor_data_page.dart';
+import 'package:iot_project/energy_efficiency_page.dart';
 import 'package:iot_project/energy_saving_settings_page.dart';
 
 // Global notification plugin
@@ -751,7 +751,7 @@ void _handleNotificationTap(Map<String, dynamic> data) {
       break;
     case 'offline':
     case 'sensor_error':
-      print('➡️ 導航到感測器監控');
+      print('➡️ 導航到首頁');
       break;
     default:
       print('➡️ 未知的通知類型');
@@ -811,7 +811,7 @@ class _MainScreenState extends State<MainScreen> {
           ACControlPage(jwtToken: token!),
           const PowerMonitoringPage(),
           FanControlPage(jwtToken: token),
-          const SensorDataPage(),
+          const EnergyEfficiencyPage(),
           const EnergySavingSettingsPage(),
         ];
         _isLoadingPages = false;
@@ -836,7 +836,7 @@ class _MainScreenState extends State<MainScreen> {
       case 2: return '冷氣控制';
       case 3: return '用電監控';
       case 4: return '風扇控制';
-      case 5: return '感測數據監控';
+      case 5: return '省電效能展示';
       case 6: return '節能設定';
       default: return '智慧節能系統';
     }

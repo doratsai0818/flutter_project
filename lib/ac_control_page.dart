@@ -40,14 +40,53 @@ class _ACControlPageState extends State<ACControlPage> {
   Timer? _statusTimer;
   Timer? _sensorTimer;
 
-  // 模式名稱對應
-  final List<String> _acModes = ['送風', '自動', '冷氣', '除濕'];
-  final List<IconData> _acModeIcons = [
-    Icons.air,           // 送風
-    Icons.autorenew,     // 自動
-    Icons.ac_unit,       // 冷氣
-    Icons.water_drop,    // 除濕
-  ];
+  // 獲取模式標籤
+  String _getACModeLabel(int modeIndex) {
+    switch (modeIndex) {
+      case 0:
+        return '送風';
+      case 1:
+        return '自動';
+      case 2:
+        return '冷氣';
+      case 3:
+        return '除濕';
+      default:
+        return '冷氣';
+    }
+  }
+
+  // 獲取模式圖示
+  IconData _getACModeIcon(int modeIndex) {
+    switch (modeIndex) {
+      case 0:
+        return Icons.air;
+      case 1:
+        return Icons.autorenew;
+      case 2:
+        return Icons.ac_unit;
+      case 3:
+        return Icons.water_drop;
+      default:
+        return Icons.ac_unit;
+    }
+  }
+
+  // 獲取模式顏色
+  Color _getACModeColor(int modeIndex) {
+    switch (modeIndex) {
+      case 0:
+        return Colors.teal;      // 送風
+      case 1:
+        return Colors.orange;    // 自動
+      case 2:
+        return Colors.blue;      // 冷氣
+      case 3:
+        return Colors.cyan;      // 除濕
+      default:
+        return Colors.blue;
+    }
+  }
 
   @override
   void initState() {
@@ -472,6 +511,31 @@ class _ACControlPageState extends State<ACControlPage> {
     );
   }
 
+  // 模式按鈕的 UI (改為單一按鈕循環切換)
+  Widget _buildACModeButton() {
+    String modeLabel = _getACModeLabel(_selectedACModeIndex);
+    Color modeColor = _getACModeColor(_selectedACModeIndex);
+    IconData modeIcon = _getACModeIcon(_selectedACModeIndex);
+    
+    bool isDisabled = !_isManualMode || !_isACOn;
+    
+    return ElevatedButton.icon(
+      onPressed: isDisabled ? null : () => _sendIRCommand('mode'),
+      style: ElevatedButton.styleFrom(
+        foregroundColor: Colors.white,
+        backgroundColor: isDisabled ? Colors.grey : modeColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      ),
+      icon: Icon(modeIcon, size: 24),
+      label: Text(
+        '模式: $modeLabel',
+        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+      ),
+    );
+  }
+
+  // 運轉模式選擇器 (修改後的版本)
   Widget _buildACModeSelector() {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -483,52 +547,31 @@ class _ACControlPageState extends State<ACControlPage> {
             '運轉模式',
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
+          const SizedBox(height: 16),
+          
+          // 單一按鈕切換模式
+          Center(child: _buildACModeButton()),
+          
           const SizedBox(height: 12),
-          Row(
-            children: _acModes.asMap().entries.map((entry) {
-              int idx = entry.key;
-              String mode = entry.value;
-              bool isSelected = _selectedACModeIndex == idx;
-
-              return Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: ElevatedButton(
-                    onPressed: (_isManualMode && _isACOn)
-                        ? () => _sendIRCommand('mode')
-                        : null,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: isSelected && _isManualMode
-                          ? Colors.blue
-                          : Colors.grey.shade300,
-                      foregroundColor: isSelected && _isManualMode
-                          ? Colors.white
-                          : Colors.black54,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    child: Column(
-                      children: [
-                        Icon(_acModeIcons[idx], size: 20),
-                        const SizedBox(height: 4),
-                        Text(
-                          mode,
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                      ],
-                    ),
-                  ),
+          Center(
+            child: Text(
+              '按下按鈕循環切換: 送風 → 自動 → 冷氣 → 除濕',
+              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              textAlign: TextAlign.center,
+            ),
+          ),
+          
+          // 如果不是手動模式或冷氣關閉，顯示提示
+          if (!_isManualMode || !_isACOn)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Center(
+                child: Text(
+                  !_isACOn ? '(請先開啟冷氣)' : '(請切換到手動模式)',
+                  style: TextStyle(fontSize: 12, color: Colors.orange[700]),
                 ),
-              );
-            }).toList(),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '提示: 循環順序為 ${_acModes.join(' → ')}',
-            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-          ),
+              ),
+            ),
         ],
       ),
     );
