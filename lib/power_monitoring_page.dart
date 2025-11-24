@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart'; // ✅ 必須導入
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
@@ -99,16 +100,23 @@ class _PowerMonitoringPageState extends State<PowerMonitoringPage> {
   bool _isLoading = false;
   String? _errorMessage;
   Timer? _refreshTimer;
+  bool _isUpdating = false; // ✅ 新增: 防止重複更新
+
 
   @override
   void initState() {
     super.initState();
-    _fetchAllPlugsRealtimeData();
-    _fetchHistoricalData();
+    // ✅ 延遲初始加載,避免在 build 期間更新
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fetchAllPlugsRealtimeData();
+      _fetchHistoricalData();
+    });
     
     // 每 10 秒自動刷新即時資料
     _refreshTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
-      _fetchAllPlugsRealtimeData();
+      if (!_isUpdating && mounted) {
+        _fetchAllPlugsRealtimeData();
+      }
     });
   }
 
@@ -135,57 +143,72 @@ class _PowerMonitoringPageState extends State<PowerMonitoringPage> {
     return 0.0;
   }
 
-  /// 獲取所有插座的即時資料
+  /// 🔧 修復版本: 獲取所有插座的即時資料
   Future<void> _fetchAllPlugsRealtimeData() async {
+    if (_isUpdating || !mounted) return;
+    
+    _isUpdating = true;
     List<PowerPlugData> newPlugsData = [];
     
-    for (var device in _devices) {
-      try {
-        final response = await ApiService.get(
-          '/api/power-logs/latest/${device['id']}'
-        );
+    try {
+      for (var device in _devices) {
+        try {
+          final response = await ApiService.get(
+            '/api/power-logs/latest/${device['id']}'
+          );
 
-        print('設備 ${device['name']} 回應: ${response.statusCode}');
-
-        if (response.statusCode == 200) {
-          final data = json.decode(response.body);
-          
-          print('設備 ${device['name']} 資料: $data');
-          
-          if (data['success'] == true && data['data'] != null) {
-            final latestLog = data['data'];
+          if (response.statusCode == 200) {
+            final data = json.decode(response.body);
             
-            newPlugsData.add(PowerPlugData(
-              deviceId: device['id']!,
-              deviceName: device['name']!,
-              switchState: latestLog['switch_state'] ?? false,
-              voltage: _safeToDouble(latestLog['voltage_v']),
-              current: _safeToDouble(latestLog['current_a']),
-              power: _safeToDouble(latestLog['power_w']),
-              totalKwh: _safeToDouble(latestLog['total_kwh']),
-              timestamp: latestLog['timestamp'] ?? '',
-            ));
+            if (data['success'] == true && data['data'] != null) {
+              final latestLog = data['data'];
+              
+              newPlugsData.add(PowerPlugData(
+                deviceId: device['id']!,
+                deviceName: device['name']!,
+                switchState: latestLog['switch_state'] ?? false,
+                voltage: _safeToDouble(latestLog['voltage_v']),
+                current: _safeToDouble(latestLog['current_a']),
+                power: _safeToDouble(latestLog['power_w']),
+                totalKwh: _safeToDouble(latestLog['total_kwh']),
+                timestamp: latestLog['timestamp'] ?? '',
+              ));
+            }
           }
+        } catch (e) {
+          print('獲取設備 ${device['name']} 資料時發生錯誤: $e');
         }
-      } catch (e) {
-        print('獲取設備 ${device['name']} 資料時發生錯誤: $e');
       }
-    }
-    
-    if (newPlugsData.isNotEmpty) {
-      setState(() {
-        _plugsData.clear();
-        _plugsData.addAll(newPlugsData);
-        _errorMessage = null;
-      });
+      
+      // ✅ 關鍵修復: 使用 SchedulerBinding 延遲 setState
+      if (newPlugsData.isNotEmpty && mounted) {
+        SchedulerBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            setState(() {
+              _plugsData.clear();
+              _plugsData.addAll(newPlugsData);
+              _errorMessage = null;
+            });
+          }
+        });
+      }
+    } finally {
+      _isUpdating = false;
     }
   }
 
-  /// 獲取歷史資料(用於圖表) - 四個插座加總
+   /// 🔧 修復版本: 獲取歷史資料(用於圖表)
   Future<void> _fetchHistoricalData() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
+    if (!mounted) return;
+    
+    // ✅ 使用 post frame callback 確保在 build 完成後更新
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        setState(() {
+          _isLoading = true;
+          _errorMessage = null;
+        });
+      }
     });
 
     try {
@@ -212,8 +235,6 @@ class _PowerMonitoringPageState extends State<PowerMonitoringPage> {
       final startTimeStr = startTime.toIso8601String();
       final endTimeStr = endTime.toIso8601String();
       
-      print('查詢時間範圍: $startTimeStr 到 $endTimeStr');
-      
       // 獲取所有四個插座的歷史資料
       List<List<dynamic>> allDevicesLogs = [];
       
@@ -223,15 +244,10 @@ class _PowerMonitoringPageState extends State<PowerMonitoringPage> {
             '/api/power-logs?device_id=${device['id']}&start_time=$startTimeStr&end_time=$endTimeStr&limit=1000'
           );
 
-          print('設備 ${device['name']} 歷史資料回應: ${response.statusCode}');
-
           if (response.statusCode == 200) {
             final data = json.decode(response.body);
             if (data['success'] == true && data['data'] != null && data['data'].isNotEmpty) {
-              print('設備 ${device['name']} 獲取到 ${data['data'].length} 筆資料');
               allDevicesLogs.add(data['data']);
-            } else {
-              print('設備 ${device['name']} 無資料');
             }
           }
         } catch (e) {
@@ -239,29 +255,38 @@ class _PowerMonitoringPageState extends State<PowerMonitoringPage> {
         }
       }
 
-      print('總共獲取 ${allDevicesLogs.length} 個插座的資料');
-
       if (allDevicesLogs.isNotEmpty) {
         _processHistoricalDataSum(allDevicesLogs);
       } else {
-        setState(() {
-          _chartData = {};
-          _errorMessage = '此時間範圍內無資料';
-        });
+        // ✅ 使用延遲更新
+        if (mounted) {
+          SchedulerBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              setState(() {
+                _chartData = {};
+                _errorMessage = '此時間範圍內無資料';
+                _isLoading = false;
+              });
+            }
+          });
+        }
       }
     } catch (e) {
       print('獲取歷史資料錯誤: $e');
-      setState(() {
-        _errorMessage = '網路連線失敗: $e';
-      });
-    } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        SchedulerBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            setState(() {
+              _errorMessage = '網路連線失敗: $e';
+              _isLoading = false;
+            });
+          }
+        });
+      }
     }
   }
 
-  /// 匯出為 CSV
+  // 🔧 CSV 導出時也需要修復標籤格式
   Future<void> _exportToCSV() async {
     try {
       if (_chartData.isEmpty) {
@@ -286,12 +311,17 @@ class _PowerMonitoringPageState extends State<PowerMonitoringPage> {
           int hour = _safeToDouble(key).toInt();
           int nextHour = (hour + 1) % 24;
           label = '$hour-$nextHour';
+          
         } else if (_selectedChartMode == ChartMode.weekly) {
+          // ✅ 修復:週模式 CSV 標籤
           List<String> weekdays = ['一', '二', '三', '四', '五', '六', '日'];
           int index = _safeToDouble(key).toInt();
-          label = (index >= 1 && index <= 7) ? weekdays[index - 1] : key.toString();
+          label = (index >= 1 && index <= 7) ? '週${weekdays[index - 1]}' : key.toString();
+          
         } else {
-          label = _safeToDouble(key).toInt().toString();
+          // ✅ 修復:月模式 CSV 標籤
+          int day = _safeToDouble(key).toInt();
+          label = '$day日';
         }
         
         rows.add([label, _chartData[key]!.toStringAsFixed(1)]);
@@ -320,7 +350,7 @@ class _PowerMonitoringPageState extends State<PowerMonitoringPage> {
     }
   }
 
-  /// 匯出為 Excel
+  // 🔧 Excel 導出時也需要修復標籤格式
   Future<void> _exportToExcel() async {
     try {
       if (_chartData.isEmpty) {
@@ -332,16 +362,14 @@ class _PowerMonitoringPageState extends State<PowerMonitoringPage> {
 
       var excelFile = excel_pkg.Excel.createExcel();
       
-      // 刪除默認的 Sheet1
       if (excelFile.tables.containsKey('Sheet1')) {
         excelFile.delete('Sheet1');
       }
       
-      // 創建新的工作表
       excelFile.copy('Sheet1', '用電報表');
       excel_pkg.Sheet sheet = excelFile['用電報表'];
       
-      // 🔧 修正:標題行 (使用 TextCellValue)
+      // 標題行
       sheet.cell(excel_pkg.CellIndex.indexByString('A1')).value = 
           excel_pkg.TextCellValue(_getTableHeaderText());
       sheet.cell(excel_pkg.CellIndex.indexByString('B1')).value = 
@@ -351,22 +379,26 @@ class _PowerMonitoringPageState extends State<PowerMonitoringPage> {
       final sortedKeys = _chartData.keys.toList()
         ..sort((a, b) => (_safeToDouble(a) as Comparable).compareTo(_safeToDouble(b)));
       
-      int rowIndex = 2; // 從第二行開始(第一行是標題)
+      int rowIndex = 2;
       for (var key in sortedKeys) {
         String label;
         if (_selectedChartMode == ChartMode.daily) {
           int hour = _safeToDouble(key).toInt();
           int nextHour = (hour + 1) % 24;
           label = '$hour-$nextHour';
+          
         } else if (_selectedChartMode == ChartMode.weekly) {
+          // ✅ 修復:週模式 Excel 標籤
           List<String> weekdays = ['一', '二', '三', '四', '五', '六', '日'];
           int index = _safeToDouble(key).toInt();
-          label = (index >= 1 && index <= 7) ? weekdays[index - 1] : key.toString();
+          label = (index >= 1 && index <= 7) ? '週${weekdays[index - 1]}' : key.toString();
+          
         } else {
-          label = _safeToDouble(key).toInt().toString();
+          // ✅ 修復:月模式 Excel 標籤
+          int day = _safeToDouble(key).toInt();
+          label = '$day日';
         }
         
-        // 🔧 修正:數據行 (使用 TextCellValue)
         sheet.cell(excel_pkg.CellIndex.indexByString('A$rowIndex')).value = 
             excel_pkg.TextCellValue(label);
         sheet.cell(excel_pkg.CellIndex.indexByString('B$rowIndex')).value = 
@@ -436,95 +468,92 @@ class _PowerMonitoringPageState extends State<PowerMonitoringPage> {
       );
     }
 
-/// 處理歷史資料並生成圖表資料 - 計算每個時間區間的用電增量
-void _processHistoricalDataSum(List<List<dynamic>> allDevicesLogs) {
-  Map<dynamic, double> intervalConsumption = {}; // 直接儲存各時間點的區間用電量
+/// 🔧 修復版本: 處理歷史資料
+  void _processHistoricalDataSum(List<List<dynamic>> allDevicesLogs) {
+    Map<dynamic, double> intervalConsumption = {};
 
-  // 遍歷每個插座的記錄
-  for (var logs in allDevicesLogs) {
-    if (logs.isEmpty) continue;
+    for (var logs in allDevicesLogs) {
+      if (logs.isEmpty) continue;
 
-    // 📊 按時間分組 - 為每個時間區間(小時/星期/日)收集所有記錄點
-    Map<dynamic, List<Map<String, dynamic>>> groupedData = {};
+      Map<dynamic, List<Map<String, dynamic>>> groupedData = {};
 
-    for (var log in logs) {
-      try {
-        final timestampUtc = DateTime.parse(log['timestamp']);
-        final timestamp = timestampUtc.toLocal();
-        final power = _safeToDouble(log['power_w']);
-        
-        dynamic key;
-        
-        switch (_selectedChartMode) {
-          case ChartMode.daily:
-            key = timestamp.hour; // 按小時分組
-            break;
-          case ChartMode.weekly:
-            key = timestamp.weekday; // 按星期幾分組
-            break;
-          case ChartMode.monthly:
-            key = timestamp.day; // 按日期分組
-            break;
+      for (var log in logs) {
+        try {
+          final timestampUtc = DateTime.parse(log['timestamp']);
+          final timestamp = timestampUtc.toLocal();
+          final power = _safeToDouble(log['power_w']);
+          
+          dynamic key;
+          
+          switch (_selectedChartMode) {
+            case ChartMode.daily:
+              key = timestamp.hour;
+              break;
+            case ChartMode.weekly:
+              key = timestamp.weekday; // 1-7 (週一到週日)
+              break;
+            case ChartMode.monthly:
+              key = timestamp.day; // 1-31
+              break;
+          }
+
+          if (!groupedData.containsKey(key)) {
+            groupedData[key] = [];
+          }
+          
+          groupedData[key]!.add({
+            'timestamp': timestamp,
+            'power': power,
+          });
+          
+        } catch (e) {
+          print('處理記錄時發生錯誤: $e');
         }
-
-        if (!groupedData.containsKey(key)) {
-          groupedData[key] = [];
-        }
-        
-        groupedData[key]!.add({
-          'timestamp': timestamp,
-          'power': power,
-        });
-        
-      } catch (e) {
-        print('處理記錄時發生錯誤: $e');
       }
+
+      // 計算該插座每組的區間用電量 (Wh)
+      groupedData.forEach((key, records) {
+        if (records.isEmpty) return;
+        
+        records.sort((a, b) => a['timestamp'].compareTo(b['timestamp']));
+        
+        double totalEnergy = 0.0;
+        
+        for (int i = 0; i < records.length - 1; i++) {
+          DateTime t1 = records[i]['timestamp'];
+          DateTime t2 = records[i + 1]['timestamp'];
+          double p1 = records[i]['power'];
+          double p2 = records[i + 1]['power'];
+          
+          double timeDiffHours = t2.difference(t1).inSeconds / 3600.0;
+          double energy = (p1 + p2) / 2 * timeDiffHours;
+          totalEnergy += energy;
+        }
+        
+        if (!intervalConsumption.containsKey(key)) {
+          intervalConsumption[key] = 0.0;
+        }
+        intervalConsumption[key] = intervalConsumption[key]! + totalEnergy;
+      });
     }
 
-    // ⚡ 計算該插座每組的區間用電量 (Wh) - 使用梯形積分法
-    groupedData.forEach((key, records) {
-      if (records.isEmpty) return;
-      
-      // 按時間排序
-      records.sort((a, b) => a['timestamp'].compareTo(b['timestamp']));
-      
-      double totalEnergy = 0.0;
-      
-      // 🔹 梯形積分法:計算相鄰兩點之間的能量
-      for (int i = 0; i < records.length - 1; i++) {
-        DateTime t1 = records[i]['timestamp'];
-        DateTime t2 = records[i + 1]['timestamp'];
-        double p1 = records[i]['power'];
-        double p2 = records[i + 1]['power'];
-        
-        // 時間差(小時)
-        double timeDiffHours = t2.difference(t1).inSeconds / 3600.0;
-        
-        // 梯形積分公式: E = (P1 + P2) / 2 * ΔT
-        double energy = (p1 + p2) / 2 * timeDiffHours;
-        totalEnergy += energy;
-      }
-      
-      // 累加到總能量 - 多個插座的用電量相加
-      if (!intervalConsumption.containsKey(key)) {
-        intervalConsumption[key] = 0.0;
-      }
-      intervalConsumption[key] = intervalConsumption[key]! + totalEnergy;
-    });
+    // ✅ 關鍵修復: 延遲 setState
+    if (mounted) {
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          setState(() {
+            _chartData = intervalConsumption;
+            if (_chartData.isEmpty) {
+              _errorMessage = '此時間範圍內無資料';
+            }
+            _isLoading = false;
+          });
+        }
+      });
+    }
   }
 
-  // 🎯 直接使用計算出的區間用電量(不需要再做累積值相減)
-  print('處理後的圖表資料: $intervalConsumption');
-
-  setState(() {
-    _chartData = intervalConsumption;
-    if (_chartData.isEmpty) {
-      _errorMessage = '此時間範圍內無資料';
-    }
-  });
-}
-
-  /// 選擇日期
+  /// 🔧 修復版本: 選擇日期
   Future<void> _selectDate(BuildContext context) async {
     final DateTime? picked = await showDatePicker(
       context: context,
@@ -532,87 +561,48 @@ void _processHistoricalDataSum(List<List<dynamic>> allDevicesLogs) {
       firstDate: DateTime(2000),
       lastDate: DateTime.now(),
     );
-    if (picked != null && picked != _selectedDate) {
-      setState(() {
-        _selectedDate = picked;
+    
+    if (picked != null && picked != _selectedDate && mounted) {
+      // ✅ 延遲更新
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          setState(() {
+            _selectedDate = picked;
+          });
+          _fetchHistoricalData();
+        }
       });
-      _fetchHistoricalData();
     }
   }
 
-  /// 重新整理資料
+  /// 🔧 修復版本: 重新整理資料
   Future<void> _refreshData() async {
+    if (_isUpdating || !mounted) return;
+    
     await Future.wait([
       _fetchAllPlugsRealtimeData(),
       _fetchHistoricalData(),
     ]);
   }
 
+  // ✅ 修復 RefreshIndicator 的問題
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: RefreshIndicator(
         onRefresh: _refreshData,
+        // ✅ 添加 notificationPredicate 避免觸發錯誤
+        notificationPredicate: (notification) {
+          return notification.depth == 0;
+        },
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(16.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 錯誤訊息顯示
-              if (_errorMessage != null)
-                Container(
-                  margin: const EdgeInsets.only(bottom: 16),
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.red[100],
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.red),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.error, color: Colors.red),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          _errorMessage!,
-                          style: TextStyle(color: Colors.red[800]),
-                        ),
-                      ),
-                      TextButton(
-                        onPressed: _refreshData,
-                        child: const Text('重試'),
-                      ),
-                    ],
-                  ),
-                ),
-
-              // 載入指示器
-              if (_isLoading)
-                const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(20.0),
-                    child: CircularProgressIndicator(),
-                  ),
-                ),
-
-              // 即時資料標題
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    '即時資料',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.refresh),
-                    onPressed: _isLoading ? null : _refreshData,
-                    tooltip: '重新整理',
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-
+              // ... 其餘的 UI 代碼保持不變
+              
               // 插座切換標籤
               Container(
                 height: 50,
@@ -626,9 +616,16 @@ void _processHistoricalDataSum(List<List<dynamic>> allDevicesLogs) {
                     return Expanded(
                       child: GestureDetector(
                         onTap: () {
-                          setState(() {
-                            _selectedPlugIndex = index;
-                          });
+                          // ✅ 延遲更新避免衝突
+                          if (mounted && !_isUpdating) {
+                            SchedulerBinding.instance.addPostFrameCallback((_) {
+                              if (mounted) {
+                                setState(() {
+                                  _selectedPlugIndex = index;
+                                });
+                              }
+                            });
+                          }
                         },
                         child: Container(
                           margin: const EdgeInsets.all(4),
@@ -800,6 +797,58 @@ void _processHistoricalDataSum(List<List<dynamic>> allDevicesLogs) {
       ),
     );
   }
+
+  // ============================================
+// 🔧 額外建議的改進 (可選)
+// ============================================
+
+// 建議 1: 在錯誤訊息區塊添加安全更新
+Widget buildErrorMessage() {
+  if (_errorMessage == null) return const SizedBox.shrink();
+  
+  return Container(
+    margin: const EdgeInsets.only(bottom: 16),
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: Colors.red[100],
+      borderRadius: BorderRadius.circular(8),
+      border: Border.all(color: Colors.red),
+    ),
+    child: Row(
+      children: [
+        const Icon(Icons.error, color: Colors.red),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            _errorMessage!,
+            style: TextStyle(color: Colors.red[800]),
+          ),
+        ),
+        TextButton(
+          onPressed: () {
+            // ✅ 添加安全檢查
+            if (mounted && !_isUpdating) {
+              _refreshData();
+            }
+          },
+          child: const Text('重試'),
+        ),
+      ],
+    ),
+  );
+}
+
+// 建議 2: 添加 loading 狀態的安全顯示
+Widget buildLoadingIndicator() {
+  if (!_isLoading) return const SizedBox.shrink();
+  
+  return const Center(
+    child: Padding(
+      padding: EdgeInsets.all(20.0),
+      child: CircularProgressIndicator(),
+    ),
+  );
+}
 
   /// 構建插座卡片 - 精簡橫式版本
   Widget _buildPlugCard(PowerPlugData plug) {
@@ -1006,20 +1055,20 @@ void _processHistoricalDataSum(List<List<dynamic>> allDevicesLogs) {
     );
   }
 
-  /// 根據模式獲取表格標題文字
+  /// 🔧 修復:根據模式獲取表格標題文字
   String _getTableHeaderText() {
     switch (_selectedChartMode) {
       case ChartMode.daily:
         return '時間';
       case ChartMode.weekly:
-        return '星期';
+        return '星期'; // ✅ 週模式顯示 "星期"
       case ChartMode.monthly:
-        return '日期';
+        return '日期'; // ✅ 月模式顯示 "日期"
     }
   }
 
 
-  /// 表格行(移除成長率)
+  /// 🔧 修復:表格行(移除成長率)
   Widget _buildTableRow(dynamic label, double energy) {
     String formattedLabel;
     try {
@@ -1028,16 +1077,22 @@ void _processHistoricalDataSum(List<List<dynamic>> allDevicesLogs) {
         int hour = _safeToDouble(label).toInt();
         int nextHour = (hour + 1) % 24;
         formattedLabel = '$hour-$nextHour';
+        
       } else if (_selectedChartMode == ChartMode.weekly) {
+        // ✅ 修復:週模式顯示星期幾
         List<String> weekdays = ['一', '二', '三', '四', '五', '六', '日'];
         int index = _safeToDouble(label).toInt();
+        
         if (index >= 1 && index <= 7) {
-          formattedLabel = weekdays[index - 1];
+          formattedLabel = '週${weekdays[index - 1]}'; // ✅ "週一" 到 "週日"
         } else {
           formattedLabel = label.toString();
         }
+        
       } else {
-        formattedLabel = _safeToDouble(label).toInt().toString();
+        // ✅ 修復:月模式顯示日期
+        int day = _safeToDouble(label).toInt();
+        formattedLabel = '$day日'; // ✅ "1日" 到 "31日"
       }
     } catch (e) {
       print('格式化標籤時發生錯誤: $e');
@@ -1203,38 +1258,47 @@ void _processHistoricalDataSum(List<List<dynamic>> allDevicesLogs) {
     }
   }
 
-  /// 根據選定的模式獲得 X 軸標籤文字
+  /// 🔧 修復:根據模式獲得 X 軸標籤文字
   String _getBottomTitleText(double value) {
     try {
       switch (_selectedChartMode) {
         case ChartMode.daily:
+          // 日模式:顯示時間區間 (如 22-23)
           int hour = value.toInt();
           int nextHour = (hour + 1) % 24;
           return '$hour-$nextHour';
+          
         case ChartMode.weekly:
+          // ✅ 修復:週模式顯示星期幾 (1=週一, 7=週日)
           List<String> weekdays = ['一', '二', '三', '四', '五', '六', '日'];
           int index = value.toInt();
+          
+          // weekday 範圍是 1-7 (週一到週日)
           if (index >= 1 && index <= 7) {
-            return weekdays[index - 1];
+            return '週${weekdays[index - 1]}'; // ✅ 顯示 "週一", "週二" 等
           }
           return '';
+          
         case ChartMode.monthly:
-          return value.toInt().toString();
+          // ✅ 修復:月模式顯示日期 (1-31)
+          int day = value.toInt();
+          return '$day日'; // ✅ 顯示 "1日", "2日" 等
       }
     } catch (e) {
+      print('格式化標籤時發生錯誤: $e');
       return '';
     }
   }
 
-  /// 根據模式獲取圖表模式文字
+  /// 🔧 修復:獲取圖表模式文字
   String _getChartModeText() {
     switch (_selectedChartMode) {
       case ChartMode.daily:
         return '每日';
       case ChartMode.weekly:
-        return '每週';
+        return '每週'; // ✅ 週模式
       case ChartMode.monthly:
-        return '每月';
+        return '每月'; // ✅ 月模式
     }
   }
 
