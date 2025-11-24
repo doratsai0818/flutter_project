@@ -139,29 +139,28 @@ class _MyAccountPageState extends State<MyAccountPage> {
       builder: (BuildContext dialogContext) {
         return AlertDialog(
           title: const Text('確認登出'),
-          content: const Text('您確定要登出帳戶嗎?'),
+          content: const Text('您確定要登出嗎?'),
           actions: <Widget>[
             TextButton(
-              onPressed: () {
-                Navigator.of(dialogContext).pop();
-              },
+              onPressed: () => Navigator.of(dialogContext).pop(),
               child: const Text('取消'),
             ),
             TextButton(
               onPressed: () async {
+                // 關閉對話框
                 Navigator.of(dialogContext).pop();
                 
-                try {
-                  await ApiService.post('/auth/logout', {});
-                } catch (e) {
-                  print('登出 API 呼叫失敗: $e');
-                }
-                
+                // 清除認證資料
                 await TokenService.clearAuthData();
+                
+                // 先關閉我的帳戶頁面
+                Navigator.of(context).pop();
+                
+                // 再呼叫 onLogout 跳轉到登入頁
                 widget.onLogout();
               },
               child: const Text(
-                '確定登出',
+                '登出',
                 style: TextStyle(color: Colors.red),
               ),
             ),
