@@ -13,12 +13,12 @@ class EnergySavingSettingsPage extends StatefulWidget {
 class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
   // 節能設定選項
   double? _selectedActivityMet;
-  double? _selectedClothingClo;
+  List<String> _selectedClothingItems = []; // 改為多選列表
   String? _selectedAirflowSpeed;
 
   // 編輯模式的暫存變數
   double? _tempSelectedActivityMet;
-  double? _tempSelectedClothingClo;
+  List<String> _tempSelectedClothingItems = [];
   String? _tempSelectedAirflowSpeed;
 
   // PMV 數據
@@ -35,52 +35,34 @@ class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
   bool _isClothingExpanded = false;
   bool _isAirflowExpanded = false;
 
-  // 靜態選項資料
-  static const List<String> _activityOptions = [
-    '睡覺', '斜倚', '靜坐', '坐著閱讀', '寫作', '打字',
-    '放鬆站立', '坐著歸檔', '站著歸檔', '四處走動', '烹飪',
-    '搬舉/打包', '坐著,肢體大量活動', '輕型機械操作', '打掃房屋',
-    '健美操/徒手體操', '跳舞',
-  ];
+  // ✅ 替換成新的
+static const List<String> _activityOptions = [
+  '睡覺', '斜倚', '靜坐', '坐著閱讀', '寫作', '打字',
+  '放鬆站立', '坐著歸檔', '站著歸檔', '四處走動', '烹飪',
+  '提舉/打包', '坐著,肢體大量活動', '輕型機械操作', '打掃房屋',
+  '跳舞', '徒手體操',
+];
 
-  static const Map<String, double> activityMETs = {
-    '睡覺': 0.7,
-    '斜倚': 0.8,
-    '靜坐': 1.0,
-    '坐著閱讀': 1.05,   
-    '寫作': 1.02,       
-    '打字': 1.1,
-    '放鬆站立': 1.2,
-    '坐著歸檔': 1.25,    
-    '站著歸檔': 1.4,
-    '四處走動': 1.7,
-    '烹飪': 1.8,
-    '搬舉/打包': 2.1,
-    '坐著,肢體大量活動': 2.25, 
-    '輕型機械操作': 2.2,
-    '打掃房屋': 2.7,
-    '健美操/徒手體操': 3.5,
-    '跳舞': 3.4,
-  };
+static const Map<String, double> activityMETs = {
+  '睡覺': 0.7, '斜倚': 0.8, '靜坐': 1.0, '坐著閱讀': 1.0,   
+  '寫作': 1.0, '打字': 1.1, '放鬆站立': 1.2, '坐著歸檔': 1.2,    
+  '站著歸檔': 1.4, '四處走動': 1.7, '烹飪': 1.8, '提舉/打包': 2.1,
+  '坐著,肢體大量活動': 2.2, '輕型機械操作': 2.2, '打掃房屋': 2.7,
+  '跳舞': 3.4, '徒手體操': 3.5,
+};
 
-  static const List<String> _clothingOptions = [
-    '短褲、短袖襯衫', '典型夏季室內服裝', '半膝裙、短袖襯衫、涼鞋、內衣褲',
-    '長褲、短袖襯衫、襪子、鞋子、內衣褲', '長褲、長袖襯衫',
-    '半膝裙、長袖襯衫、連身襯裙', '運動長褲、長袖運動衫',
-    '夾克、長褲、長袖襯衫', '典型冬季室內服裝',
-  ];
+// ✅ 新增衣物多選資料
+static const Map<String, double> clothingItems = {
+  'T-shirt': 0.08, 'Polo衫': 0.11, '長袖襯衫': 0.20,
+  '薄長袖外套': 0.20, '毛衣': 0.28, '厚外套': 0.50,
+  '長褲': 0.25, '短褲': 0.06, '帽子': 0.03,
+  '襪子': 0.02, '鞋子': 0.02,
+};
 
-  static const Map<String, double> clothingClo = {
-    '短褲、短袖襯衫': 0.36,
-    '典型夏季室內服裝': 0.50,
-    '半膝裙、短袖襯衫、涼鞋、內衣褲': 0.45,
-    '長褲、短袖襯衫、襪子、鞋子、內衣褲': 0.57,
-    '長褲、長袖襯衫': 0.61,
-    '半膝裙、長袖襯衫、連身襯裙': 0.67,
-    '運動長褲、長袖運動衫': 0.74,
-    '夾克、長褲、長袖襯衫': 0.96,
-    '典型冬季室內服裝': 1.00,
-  };
+static const Map<String, List<String>> presetClothingCombos = {
+  '典型夏季室內服裝': ['T-shirt', '短褲', '鞋子', '襪子'],
+  '典型冬季室內服裝': ['長袖襯衫', '長褲', '毛衣', '鞋子', '襪子'],
+};
 
   static const List<String> _airflowOptions = ['無風扇', '有風扇'];
 
@@ -112,14 +94,23 @@ class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
     return null;
   }
 
-  /// 根據 Clo 值反查衣著名稱
-  String? _getClothingNameByClo(double clo) {
-    for (var entry in clothingClo.entries) {
-      if ((entry.value - clo).abs() < 0.01) {
-        return entry.key;
+  // ✅ 替換成新的
+  /// 計算衣物總 clo 值 (多件加總 × 0.82)
+  double _calculateTotalClo(List<String> items) {
+    if (items.isEmpty) return 0.0;
+    double sum = items.fold(0.0, (prev, item) => prev + (clothingItems[item] ?? 0.0));
+    return sum * 0.82; // ISO 9920 修正係數
+  }
+
+  /// 根據 clo 值反查可能的衣物組合
+  List<String> _getClothingItemsByClo(double clo) {
+    for (var entry in presetClothingCombos.entries) {
+      double presetClo = _calculateTotalClo(entry.value);
+      if ((presetClo - clo).abs() < 0.05) {
+        return entry.value;
       }
     }
-    return null;
+    return []; // 非預設組合,返回空
   }
 
   /// 從後端獲取節能設定
@@ -131,14 +122,31 @@ class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
         final data = json.decode(response.body);
         setState(() {
           _selectedActivityMet = (data['activity_met'] as num).toDouble();
-          _selectedClothingClo = (data['clothing_clo'] as num).toDouble();
+          
+          // ✅ 優先使用 clothing_items_json,否則用 clo 值反推
+          if (data['clothing_items_json'] != null && data['clothing_items_json'] != '') {
+            try {
+              final itemsList = json.decode(data['clothing_items_json']) as List;
+              _selectedClothingItems = itemsList.cast<String>();
+            } catch (e) {
+              print('解析 clothing_items_json 失敗: $e');
+              double clo = (data['clothing_clo'] as num).toDouble();
+              _selectedClothingItems = _getClothingItemsByClo(clo);
+            }
+          } else {
+            // 後端沒有 JSON,用 clo 值反推 (向下兼容舊數據)
+            double clo = (data['clothing_clo'] as num).toDouble();
+            _selectedClothingItems = _getClothingItemsByClo(clo);
+          }
+          
           _selectedAirflowSpeed = data['airflow_speed'];
 
           _tempSelectedActivityMet = _selectedActivityMet;
-          _tempSelectedClothingClo = _selectedClothingClo;
+          _tempSelectedClothingItems = List.from(_selectedClothingItems);
           _tempSelectedAirflowSpeed = _selectedAirflowSpeed;
         });
         print('成功獲取節能設定: $data');
+        print('已選擇衣物: $_selectedClothingItems');
       } else if (response.statusCode == 404) {
         _showErrorSnackBar('找不到節能設定,請檢查帳戶設定');
       } else {
@@ -202,9 +210,16 @@ class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
     setState(() => _isSaving = true);
 
     try {
+      // 計算總 clo 值
+      double totalClo = _calculateTotalClo(_tempSelectedClothingItems);
+      
+      // ✅ 將衣物列表轉為 JSON 字串
+      String clothingItemsJson = json.encode(_tempSelectedClothingItems);
+      
       final response = await ApiService.post('/energy-saving/settings', {
         'activityMet': _tempSelectedActivityMet,
-        'clothingClo': _tempSelectedClothingClo,
+        'clothingClo': totalClo,
+        'clothingItemsJson': clothingItemsJson, // ✅ 新增這行
         'airflowSpeed': _tempSelectedAirflowSpeed,
       });
 
@@ -214,7 +229,7 @@ class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
         
         setState(() {
           _selectedActivityMet = _tempSelectedActivityMet;
-          _selectedClothingClo = _tempSelectedClothingClo;
+          _selectedClothingItems = List.from(_tempSelectedClothingItems);
           _selectedAirflowSpeed = _tempSelectedAirflowSpeed;
           
           _isEditing = false;
@@ -251,7 +266,7 @@ class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
         _updateEnergySavingSettings();
       } else {
         _tempSelectedActivityMet = _selectedActivityMet;
-        _tempSelectedClothingClo = _selectedClothingClo;
+        _tempSelectedClothingItems = List.from(_selectedClothingItems); // ✅ 改這行
         _tempSelectedAirflowSpeed = _selectedAirflowSpeed;
         _isEditing = true;
       }
@@ -299,7 +314,7 @@ class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
   }
 
   /// 處理選項變更
-  void _handleOptionChanged(String type, String? newValue) {
+  void _handleOptionChanged(String type, dynamic newValue) { // ✅ 改參數型別
     setState(() {
       switch (type) {
         case 'activity':
@@ -307,9 +322,15 @@ class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
           _isActivityExpanded = false;
           break;
         case 'clothing':
-          _tempSelectedClothingClo = clothingClo[newValue];
-          _isClothingExpanded = false;
-          break;
+        // ✅ 新增多選邏輯
+        if (newValue is String) {
+          if (_tempSelectedClothingItems.contains(newValue)) {
+            _tempSelectedClothingItems.remove(newValue);
+          } else {
+            _tempSelectedClothingItems.add(newValue);
+          }
+        }
+        break;
         case 'airflow':
           _tempSelectedAirflowSpeed = newValue;
           _isAirflowExpanded = false;
@@ -384,9 +405,12 @@ class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
     final activityDisplayName = _getActivityNameByMet(
       _isEditing ? (_tempSelectedActivityMet ?? 0.0) : (_selectedActivityMet ?? 0.0)
     );
-    final clothingDisplayName = _getClothingNameByClo(
-      _isEditing ? (_tempSelectedClothingClo ?? 0.0) : (_selectedClothingClo ?? 0.0)
-    );
+    // ✅ 替換成新的
+    final displayClothingItems = _isEditing ? _tempSelectedClothingItems : _selectedClothingItems;
+    final totalClo = _calculateTotalClo(displayClothingItems);
+    final clothingDisplayText = displayClothingItems.isEmpty 
+        ? '未選擇' 
+        : '${displayClothingItems.join(", ")} (總clo: ${totalClo.toStringAsFixed(2)})';
     
     // 移除 PopScope 和 Scaffold 的 AppBar
     return Scaffold( // 保持 Scaffold 以提供基礎結構
@@ -485,14 +509,14 @@ class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
                     ),
                     const SizedBox(height: 16),
 
-                    // 穿著類型
-                    _buildExpansionTileCard(
+                    // ✅ 替換成新的多選卡片
+                    _buildClothingMultiSelectCard(
                       title: '穿著類型',
-                      selectedValue: clothingDisplayName,
+                      selectedItems: displayClothingItems,
+                      totalClo: totalClo,
                       isExpanded: _isClothingExpanded,
                       onExpansionChanged: (expanded) => _handleExpansionChanged('clothing', expanded),
-                      options: _clothingOptions,
-                      onOptionChanged: (value) => _handleOptionChanged('clothing', value),
+                      onItemToggle: (item) => _handleOptionChanged('clothing', item),
                       icon: Icons.checkroom,
                     ),
                     const SizedBox(height: 16),
@@ -555,17 +579,175 @@ class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
                     // 當前設定總覽 (在編輯按鈕下方)
                     if (!_isEditing && 
                         activityDisplayName != null && 
-                        clothingDisplayName != null && 
+                        displayClothingItems.isNotEmpty && // ✅ 改這行
                         _selectedAirflowSpeed != null)
                       _buildCurrentSettingsSummary(
                         activityDisplayName,
-                        clothingDisplayName,
+                        clothingDisplayText, // ✅ 改這行
                         _selectedAirflowSpeed!
                       ),
                   ],
                 ),
               ),
             ),
+    );
+  }
+
+  /// 構建衣物多選卡片
+  Widget _buildClothingMultiSelectCard({
+    required String title,
+    required List<String> selectedItems,
+    required double totalClo,
+    required bool isExpanded,
+    required ValueChanged<bool> onExpansionChanged,
+    required ValueChanged<String> onItemToggle,
+    required IconData icon,
+  }) {
+    final Color cardBackgroundColor = _isEditing
+        ? Theme.of(context).primaryColor.withOpacity(0.1)
+        : Colors.grey.shade100;
+    
+    final Color titleColor = _isEditing ? Colors.black87 : Colors.black;
+    final Color subtitleColor = _isEditing ? Colors.black54 : Colors.black87;
+    final Color trailingColor = _isEditing 
+        ? Theme.of(context).primaryColor 
+        : Colors.grey;
+    final Color iconColor = _isEditing 
+        ? Theme.of(context).primaryColor 
+        : Colors.grey.shade600;
+
+    // 顯示文字
+    String displayText = selectedItems.isEmpty 
+        ? '未選擇' 
+        : '${selectedItems.length} 件 (總clo: ${totalClo.toStringAsFixed(2)})';
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 8.0),
+      decoration: BoxDecoration(
+        color: cardBackgroundColor,
+        borderRadius: BorderRadius.circular(15),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.2),
+            spreadRadius: 1,
+            blurRadius: 3,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: ExpansionTile(
+        key: PageStorageKey(title),
+        leading: Icon(icon, color: iconColor),
+        title: Text(
+          title,
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: titleColor,
+          ),
+        ),
+        subtitle: Text(
+          displayText,
+          style: TextStyle(
+            fontSize: 14,
+            color: subtitleColor,
+            fontWeight: selectedItems.isNotEmpty ? FontWeight.w500 : FontWeight.normal,
+          ),
+        ),
+        trailing: Icon(
+          isExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+          color: trailingColor,
+        ),
+        initiallyExpanded: isExpanded,
+        onExpansionChanged: onExpansionChanged,
+        controlAffinity: ListTileControlAffinity.trailing,
+        children: [
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 16.0),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Column(
+              children: [
+                // 預設組合按鈕
+                Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _buildPresetButton('典型夏季室內服裝', onItemToggle),
+                      _buildPresetButton('典型冬季室內服裝', onItemToggle),
+                    ],
+                  ),
+                ),
+                const Divider(),
+                // 個別衣物選項
+                _buildClothingCheckboxGroup(
+                  selectedItems: selectedItems,
+                  onChanged: _isEditing ? onItemToggle : null,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 構建預設組合按鈕
+  Widget _buildPresetButton(String presetName, ValueChanged<String> onItemToggle) {
+    return ElevatedButton.icon(
+      onPressed: _isEditing ? () {
+        setState(() {
+          _tempSelectedClothingItems.clear();
+          _tempSelectedClothingItems.addAll(presetClothingCombos[presetName]!);
+        });
+      } : null,
+      icon: const Icon(Icons.category, size: 16),
+      label: Text(presetName),
+      style: ElevatedButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      ),
+    );
+  }
+
+  /// 構建衣物多選框組
+  Widget _buildClothingCheckboxGroup({
+    required List<String> selectedItems,
+    required ValueChanged<String>? onChanged,
+  }) {
+    return Column(
+      children: clothingItems.keys
+          .map((item) => CheckboxListTile(
+                title: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      item,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: onChanged == null ? Colors.grey : Colors.black87,
+                      ),
+                    ),
+                    Text(
+                      'clo: ${clothingItems[item]!.toStringAsFixed(2)}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  ],
+                ),
+                value: selectedItems.contains(item),
+                onChanged: onChanged != null 
+                    ? (checked) => onChanged(item)
+                    : null,
+                activeColor: Theme.of(context).primaryColor,
+                dense: true,
+              ))
+          .toList(),
     );
   }
 
