@@ -2,30 +2,38 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [ main ] # 如果你的主分支叫 master，請這裡改成 master
+    branches: [ main ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
+      # 1. Checkout 專案
       - uses: actions/checkout@v4
 
-      # 1. 安裝 Flutter 環境
-      - uses: subosito/flutter-action@v2
+      # 2. 安裝 Flutter
+      - name: Set up Flutter Environment
+        uses: subosito/flutter-action@v2
         with:
-          channel: 'master' 
+          channel: 'master'
 
-      # 2. 下載依賴套件
-      - run: flutter pub get
+      # 3. 清理
+      - name: Clean Flutter Build Cache
+        run: flutter clean
 
-      # 3. 打包 Web 版本
-      # ⚠️ 重要：請將 <你的儲存庫名稱> 替換成你 GitHub Repo 的名字
-      # 例如你的網址是 github.com/user/my-app，這裡就寫 /my-app/
-      - run: flutter build web --base-href "/flutter_project/" --release
+      # 4. 套件下載
+      - name: Get dependencies
+        run: flutter pub get
 
-      # 4. 部署到 gh-pages 分支
-      - uses: peaceiris/actions-gh-pages@v3
+      # 5. 打包 Web
+      - name: Build Web Release
+        run: flutter build web --base-href "/flutter_project/" --release
+
+      # 6. 部署到 gh-pages
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./build/web
+          force_orphan: true
