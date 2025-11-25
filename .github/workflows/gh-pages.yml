@@ -14,6 +14,7 @@ jobs:
       # 1. 安裝 Flutter 環境
       - uses: subosito/flutter-action@v2
         with:
+          flutter-version: '3.22.x'
           channel: 'stable'
 
       # 2. 下載依賴套件
