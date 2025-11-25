@@ -27,6 +27,12 @@ environment:
 # dependencies can be manually updated by changing the version numbers below to
 # the latest version available on pub.dev. To see which dependencies have newer
 # versions available, run `flutter pub outdated`.
+dependency_overrides:
+  # 強制使用最新版本的 firebase_messaging_web，以解決 PromiseJsImpl/handleThenable 錯誤
+  firebase_messaging_web: ^3.6.14 
+  # 由於 firebase_messaging_web-3.5.18 依賴舊版 js，我們也強制更新 js
+  js: ^0.7.1
+
 dependencies:
   flutter:
     sdk: flutter
@@ -45,7 +51,7 @@ dependencies:
   firebase_messaging: ^14.7.9
   csv: ^6.0.0
   excel: ^4.0.6
-  share_plus: ^10.1.3
+  share_plus: ^10.0.0
   path_provider: ^2.1.5
 
   # The following adds the Cupertino Icons font to your application.
