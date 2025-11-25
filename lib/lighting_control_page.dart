@@ -15,8 +15,8 @@ class LightingControlPage extends StatefulWidget {
 class _LightingControlPage extends State<LightingControlPage> {
   // 燈泡狀態
   List<LightState> _lights = [
-    LightState(name: '燈泡door', ip: '192.168.98.57'),
-    LightState(name: '燈泡pc', ip: '192.168.98.58'),
+    LightState(name: '燈泡door', ip: '192.168.137.3'),
+    LightState(name: '燈泡pc', ip: '192.168.137.74'),
   ];
 
   String? _activeScene;
@@ -131,100 +131,119 @@ class _LightingControlPage extends State<LightingControlPage> {
   }
 
   Future<void> _fetchLightStatus() async {
-    // ✨ 如果正在手動控制,跳過此次更新
-    if (_isManualControlling) {
-      print('⏸️ 手動控制中,跳過狀態更新');
-      return;
-    }
+  // 1. 如果正在手動控制或處於緩衝期，跳過燈光狀態讀取，但仍需獲取全局模式
+  if (_isManualControlling || 
+      (_lastManualControl != null && DateTime.now().difference(_lastManualControl!) < const Duration(seconds: 4))) {
+    print('⏸️ 控制中/緩衝期,跳過燈光狀態更新,但檢查全局模式');
     
-    // ✨ 如果最近 4 秒內有手動控制,也跳過
-    if (_lastManualControl != null && 
-        DateTime.now().difference(_lastManualControl!) < const Duration(seconds: 4)) {
-      print('⏸️ 手動控制後緩衝期,跳過狀態更新');
-      return;
-    }
-
+    // 即使跳過燈光狀態，我們仍嘗試獲取最新的全局模式
     try {
-      final response = await ApiService.get('/wiz-lights/status').timeout(
-        const Duration(seconds: 3),
-      );
+        final globalModeResponse = await ApiService.get('/system/global-mode').timeout(
+          const Duration(seconds: 3),
+        );
 
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        if (mounted) {
-          setState(() {
-            if (data['lights'] != null) {
-              for (int i = 0; i < _lights.length && i < data['lights'].length; i++) {
-                final lightData = data['lights'][i];
-                
-                // ✨ 檢查燈泡是否有錯誤(離線)
-                if (lightData['error'] != null) {
-                  _lights[i].error = lightData['error'];
-                  _lights[i].isOn = false;
-                } else {
-                  _lights[i].error = null;
-                  _lights[i].isOn = lightData['isOn'] ?? false;
-                  
-                  // 確保 temp 值在有效範圍內 (2200-6500)
-                  double tempValue = (lightData['temp'] ?? 4000).toDouble();
-                  if (tempValue == 0) tempValue = 4000; // 關閉時預設值
-                  if (tempValue < 2200) tempValue = 2200;
-                  if (tempValue > 6500) tempValue = 6500;
-                  _lights[i].temp = tempValue;
-                  
-                  // 確保 dimming 值在有效範圍內
-                  double dimmingValue = (lightData['dimming'] ?? 50).toDouble();
-                  if (dimmingValue < 10) dimmingValue = 10;
-                  if (dimmingValue > 100) dimmingValue = 100;
-                  _lights[i].dimming = dimmingValue;
-                  
-                  // RGB 值
-                  _lights[i].r = (lightData['r'] ?? 255);
-                  _lights[i].g = (lightData['g'] ?? 255);
-                  _lights[i].b = (lightData['b'] ?? 255);
-                  
-                  // ✨ 讀取燈光模式
-                  _lights[i].lightMode = lightData['lightMode'] ?? 'white';
-                }
-              }
-            }
-            _activeScene = data['activeScene'];
-            _isManualMode = _activeScene == null;
-            _isLoading = false;
-          });
+        if (globalModeResponse.statusCode == 200) {
+          final globalModeData = json.decode(globalModeResponse.body);
+          final bool globalIsManual = globalModeData['isManualMode'] ?? true;
+
+          if (mounted) {
+            setState(() {
+              _isManualMode = globalIsManual; 
+            });
+          }
         }
-      } else {
-        // HTTP 錯誤狀態碼
-        if (mounted) {
-          setState(() {
-            for (var light in _lights) {
-              light.error = '伺服器回應錯誤 (${response.statusCode})';
-              light.isOn = false;
-            }
-            _isLoading = false;
-          });
-        }
-      }
     } catch (e) {
-      print('獲取燈泡狀態失敗: $e');
+      print('獲取全局模式失敗: $e');
+    }
+    return;
+  }
+
+  // 2. 正常流程：同時獲取燈光和全局模式狀態
+  try {
+    // 同時發送兩個請求
+    final results = await Future.wait([
+        ApiService.get('/wiz-lights/status').timeout(const Duration(seconds: 3)),
+        ApiService.get('/system/global-mode').timeout(const Duration(seconds: 3)),
+    ]);
+    
+    final lightResponse = results[0];
+    final globalModeResponse = results[1];
+
+    if (lightResponse.statusCode == 200 && globalModeResponse.statusCode == 200) {
+      final lightData = json.decode(lightResponse.body);
+      final globalModeData = json.decode(globalModeResponse.body);
+      
+      final bool globalIsManual = globalModeData['isManualMode'] ?? true;
+      
       if (mounted) {
         setState(() {
-          // ✨ 即使發生錯誤也要顯示頁面,將所有燈泡標記為離線
-          for (var light in _lights) {
-            if (e.toString().contains('TimeoutException')) {
-              light.error = '連線超時,請檢查網路';
-            } else if (e.toString().contains('Failed to fetch')) {
-              light.error = '無法連接到伺服器 (localhost:3000)';
-            } else {
-              light.error = '連線異常';
+          // --- 燈光狀態更新邏輯 ---
+          if (lightData['lights'] != null) {
+            for (int i = 0; i < _lights.length && i < lightData['lights'].length; i++) {
+              final lightItem = lightData['lights'][i];
+              
+              if (lightItem['error'] != null) {
+                _lights[i].error = lightItem['error'];
+                _lights[i].isOn = false;
+              } else {
+                _lights[i].error = null;
+                _lights[i].isOn = lightItem['isOn'] ?? false;
+                
+                double tempValue = (lightItem['temp'] ?? 4000).toDouble();
+                if (tempValue == 0) tempValue = 4000;
+                if (tempValue < 2200) tempValue = 2200;
+                if (tempValue > 6500) tempValue = 6500;
+                _lights[i].temp = tempValue;
+                
+                double dimmingValue = (lightItem['dimming'] ?? 50).toDouble();
+                if (dimmingValue < 10) dimmingValue = 10;
+                if (dimmingValue > 100) dimmingValue = 100;
+                _lights[i].dimming = dimmingValue;
+                
+                _lights[i].r = (lightItem['r'] ?? 255);
+                _lights[i].g = (lightItem['g'] ?? 255);
+                _lights[i].b = (lightItem['b'] ?? 255);
+                _lights[i].lightMode = lightItem['lightMode'] ?? 'white';
+              }
             }
+          }
+          
+          // --- 全局模式同步邏輯 (核心修改) ---
+          _activeScene = lightData['activeScene'];
+          // 💡 確保本地模式與全局模式一致！
+          _isManualMode = globalIsManual; 
+          _isLoading = false;
+        });
+      }
+    } else {
+      // 伺服器錯誤狀態碼
+      if (mounted) {
+        setState(() {
+          for (var light in _lights) {
+            light.error = '伺服器回應錯誤 (${lightResponse.statusCode}/${globalModeResponse.statusCode})';
             light.isOn = false;
           }
           _isLoading = false;
         });
       }
     }
+  } catch (e) {
+    print('獲取狀態失敗: $e');
+    if (mounted) {
+      setState(() {
+        for (var light in _lights) {
+          if (e.toString().contains('TimeoutException')) {
+            light.error = '連線超時,請檢查網路';
+          } else {
+            light.error = '連線異常';
+          }
+          light.isOn = false;
+        }
+        _isLoading = false;
+      });
+    }
   }
+}
 
   Future<void> _controlLight(int index, {double? temp, double? dimming, int? r, int? g, int? b}) async {
     try {
@@ -321,50 +340,96 @@ class _LightingControlPage extends State<LightingControlPage> {
   }
 
   Future<void> _setScene(String sceneId) async {
-    try {
-      final response = await ApiService.post('/wiz-lights/scene', {
-        'scene': sceneId,
-      });
+  try {
+    // 💡 步驟 1: 呼叫全局 API，將整個系統切換到自動模式
+    final globalResponse = await ApiService.post('/system/global-mode', {
+      'isManualMode': false,
+    });
 
-      if (response.statusCode == 200) {
-        setState(() {
-          _activeScene = sceneId;
-          _isManualMode = false;
-        });
-        final sceneName = _scenes.firstWhere((s) => s.id == sceneId).name;
-        _showSuccessSnackBar('已啟動$sceneName');
-        await _fetchLightStatus();
-      }
-    } catch (e) {
-      _showErrorSnackBar('設定情境失敗');
+    if (globalResponse.statusCode != 200) {
+       _showErrorSnackBar('切換至自動模式失敗，無法啟動情境');
+       return;
     }
+    
+    // 步驟 2: 啟動情境 (這會再次在後端將 WIZ 自身的模式設為 FALSE)
+    final response = await ApiService.post('/wiz-lights/scene', {
+      'scene': sceneId,
+    });
+
+    if (response.statusCode == 200) {
+      setState(() {
+        _activeScene = sceneId;
+        _isManualMode = false; // 確保本地模式切換到自動
+      });
+      final sceneName = _scenes.firstWhere((s) => s.id == sceneId).name;
+      _showSuccessSnackBar('已啟動$sceneName');
+      await _fetchLightStatus();
+    }
+  } catch (e) {
+    _showErrorSnackBar('設定情境失敗');
   }
+}
 
   Future<void> _stopScene() async {
-    try {
-      final response = await ApiService.post('/wiz-lights/scene/stop', {});
+  try {
+    // 💡 步驟 1: 呼叫後端 API 停止 WIZ 燈光的情境
+    final stopResponse = await ApiService.post('/wiz-lights/scene/stop', {});
 
-      if (response.statusCode == 200) {
-        setState(() {
-          _activeScene = null;
-          _isManualMode = true;
-        });
-        _showSuccessSnackBar('已停止情境模式');
-      }
-    } catch (e) {
-      _showErrorSnackBar('停止失敗');
+    if (stopResponse.statusCode != 200) {
+       _showErrorSnackBar('停止情境失敗');
+       return;
     }
+    
+    // 💡 步驟 2: 呼叫全局 API，將整個系統切換到手動模式
+    final globalResponse = await ApiService.post('/system/global-mode', {
+      'isManualMode': true,
+    });
+    
+    if (globalResponse.statusCode == 200) {
+      setState(() {
+        _activeScene = null;
+        _isManualMode = true; // 確保本地模式切換到手動
+      });
+      _showSuccessSnackBar('已停止情境模式');
+      await _fetchLightStatus();
+    } else {
+       _showErrorSnackBar('切換至手動模式失敗');
+    }
+  } catch (e) {
+    _showErrorSnackBar('停止情境或模式切換失敗');
   }
+}
 
   Future<void> _updateManualMode(bool value) async {
-    if (value) {
-      // 切換到手動模式,停止情境
-      await _stopScene();
-    }
-    setState(() {
-      _isManualMode = value;
+  // 💡 不再只更新本地狀態，而是呼叫後端全局模式 API
+  try {
+    final response = await ApiService.post('/system/global-mode', {
+      'isManualMode': value,
     });
+
+    if (response.statusCode == 200) {
+      final modeText = value ? '手動' : '自動';
+      _showSuccessSnackBar('系統模式已切換至 $modeText');
+      
+      // 後端已同步所有設備，這裡只需要讀取新的模式，並清除燈光本地情境狀態
+      setState(() {
+        _isManualMode = value; // 同步全局模式到本地
+        if (value) {
+          // 如果切換到手動，燈光的情境必須清除
+          _activeScene = null; 
+        }
+      });
+      
+      // 由於模式已更改，強制刷新一次，讓燈光 UI 和所有狀態同步
+      await _fetchLightStatus();
+    } else {
+      _showErrorSnackBar('模式切換失敗');
+    }
+  } catch (e) {
+    print('更新全局模式錯誤: $e');
+    _showErrorSnackBar('網路連線錯誤，無法切換模式');
   }
+}
 
   void Function(double) _createDebouncedHandler(
     int lightIndex,
@@ -594,7 +659,7 @@ class _LightingControlPage extends State<LightingControlPage> {
                   Switch(
                     value: _isManualMode,
                     // ✨ 全部離線時禁用開關
-                    onChanged: allLightsOffline ? null : _updateManualMode,
+                    onChanged: allLightsOffline ? null : (value) => _updateManualMode(value), // 這裡需要傳入新的模式值
                     activeColor: Theme.of(context).primaryColor,
                   ),
                   Text(

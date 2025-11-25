@@ -3,28 +3,48 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:iot_project/main.dart'; // 引入 main.dart 以使用 ApiService
 
+// ----------------------------------------------------
+// 1. 主要頁面 StateFul Widget
+// ----------------------------------------------------
+
 class EnergySavingSettingsPage extends StatefulWidget {
   const EnergySavingSettingsPage({super.key});
 
   @override
-  State<EnergySavingSettingsPage> createState() => _EnergySavingSettingsPageState();
+  State<EnergySavingSettingsPage> createState() =>
+      _EnergySavingSettingsPageState();
 }
 
+// ----------------------------------------------------
+// 2. State 類
+// ----------------------------------------------------
+
 class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
+  // 温濕度數據
+  double _currentTemp = 0.0;
+  double _currentHumidity = 0.0;
+
   // 節能設定選項
   double? _selectedActivityMet;
-  List<String> _selectedClothingItems = []; // 改為多選列表
-  String? _selectedAirflowSpeed;
+  List<String> _selectedClothingItems = []; // 多選列表
+
+  // 設備狀態 (新增)
+  bool _isAcOn = false;
+  int _acSetTemp = 0;
+  bool _isFanOn = false;
+  int _fanSpeed = 0;
+  double _pmvRaw = 0.0; // ✨ 新增: 儲存原始 PMV 浮點數
+
+  // ✨ 新增: 模型建議的目標狀態 (與當前狀態分離)
+  int _modelAcDelta = 0;
+  int _modelFanLevel = 0;
 
   // 編輯模式的暫存變數
   double? _tempSelectedActivityMet;
   List<String> _tempSelectedClothingItems = [];
-  String? _tempSelectedAirflowSpeed;
 
   // PMV 數據
   int _pmvValue = 0;
-  int _currentRoomTemp = 0;
-  double _currentHumidity = 0.0;
   int _recommendedTemp = 0;
 
   // 狀態控制
@@ -33,38 +53,54 @@ class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
   bool _isSaving = false;
   bool _isActivityExpanded = false;
   bool _isClothingExpanded = false;
-  bool _isAirflowExpanded = false;
 
-  // ✅ 替換成新的
-static const List<String> _activityOptions = [
-  '睡覺', '斜倚', '靜坐', '坐著閱讀', '寫作', '打字',
-  '放鬆站立', '坐著歸檔', '站著歸檔', '四處走動', '烹飪',
-  '提舉/打包', '坐著,肢體大量活動', '輕型機械操作', '打掃房屋',
-  '跳舞', '徒手體操',
-];
+  // MET 數據
+  static const Map<String, double> activityMETs = {
+    '睡覺': 0.7,
+    '斜倚': 0.8,
+    '靜坐': 1.0,
+    '坐著閱讀': 1.0,
+    '寫作': 1.0,
+    '打字': 1.1,
+    '放鬆站立': 1.2,
+    '坐著歸檔': 1.2,
+    '站著歸檔': 1.4,
+    '四處走動': 1.7,
+    '烹飪': 1.8,
+    '提舉/打包': 2.1,
+    '坐著,肢體大量活動': 2.2,
+    '輕型機械操作': 2.2,
+    '打掃房屋': 2.7,
+    '跳舞': 3.4,
+    '徒手體操': 3.5,
+  };
 
-static const Map<String, double> activityMETs = {
-  '睡覺': 0.7, '斜倚': 0.8, '靜坐': 1.0, '坐著閱讀': 1.0,   
-  '寫作': 1.0, '打字': 1.1, '放鬆站立': 1.2, '坐著歸檔': 1.2,    
-  '站著歸檔': 1.4, '四處走動': 1.7, '烹飪': 1.8, '提舉/打包': 2.1,
-  '坐著,肢體大量活動': 2.2, '輕型機械操作': 2.2, '打掃房屋': 2.7,
-  '跳舞': 3.4, '徒手體操': 3.5,
-};
+  static const List<String> _activityOptions = [
+    '睡覺', '斜倚', '靜坐', '坐著閱讀', '寫作', '打字',
+    '放鬆站立', '坐著歸檔', '站著歸檔', '四處走動', '烹飪',
+    '提舉/打包', '坐著,肢體大量活動', '輕型機械操作', '打掃房屋',
+    '跳舞', '徒手體操',
+  ];
 
-// ✅ 新增衣物多選資料
-static const Map<String, double> clothingItems = {
-  'T-shirt': 0.08, 'Polo衫': 0.11, '長袖襯衫': 0.20,
-  '薄長袖外套': 0.20, '毛衣': 0.28, '厚外套': 0.50,
-  '長褲': 0.25, '短褲': 0.06, '帽子': 0.03,
-  '襪子': 0.02, '鞋子': 0.02,
-};
+  // 衣物 clo 值數據
+  static const Map<String, double> clothingItems = {
+    'T-shirt': 0.08,
+    'Polo衫': 0.11,
+    '長袖襯衫': 0.20,
+    '薄長袖外套': 0.20,
+    '毛衣': 0.28,
+    '厚外套': 0.50,
+    '長褲': 0.25,
+    '短褲': 0.06,
+    '帽子': 0.03,
+    '襪子': 0.02,
+    '鞋子': 0.02,
+  };
 
-static const Map<String, List<String>> presetClothingCombos = {
-  '典型夏季室內服裝': ['T-shirt', '短褲', '鞋子', '襪子'],
-  '典型冬季室內服裝': ['長袖襯衫', '長褲', '毛衣', '鞋子', '襪子'],
-};
-
-  static const List<String> _airflowOptions = ['無風扇', '有風扇'];
+  static const Map<String, List<String>> presetClothingCombos = {
+    '典型夏季室內服裝': ['T-shirt', '短褲', '鞋子', '襪子'],
+    '典型冬季室內服裝': ['長袖襯衫', '長褲', '毛衣', '鞋子', '襪子'],
+  };
 
   @override
   void initState() {
@@ -75,12 +111,12 @@ static const Map<String, List<String>> presetClothingCombos = {
   /// 載入所有數據
   Future<void> _loadAllData() async {
     setState(() => _isLoading = true);
-    
+
     await Future.wait([
-      _fetchEnergySavingSettings(),
-      _fetchACStatus(),
+      _fetchEnergySavingSettings(), // 先載入節能設定
+      _fetchACStatus(), // 然後獲取 PMV 數據 (依賴節能設定)
     ]);
-    
+
     setState(() => _isLoading = false);
   }
 
@@ -94,11 +130,11 @@ static const Map<String, List<String>> presetClothingCombos = {
     return null;
   }
 
-  // ✅ 替換成新的
   /// 計算衣物總 clo 值 (多件加總 × 0.82)
   double _calculateTotalClo(List<String> items) {
     if (items.isEmpty) return 0.0;
-    double sum = items.fold(0.0, (prev, item) => prev + (clothingItems[item] ?? 0.0));
+    double sum =
+        items.fold(0.0, (prev, item) => prev + (clothingItems[item] ?? 0.0));
     return sum * 0.82; // ISO 9920 修正係數
   }
 
@@ -117,16 +153,17 @@ static const Map<String, List<String>> presetClothingCombos = {
   Future<void> _fetchEnergySavingSettings() async {
     try {
       final response = await ApiService.get('/energy-saving/settings');
-      
+
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         setState(() {
           _selectedActivityMet = (data['activity_met'] as num).toDouble();
-          
-          // ✅ 優先使用 clothing_items_json,否則用 clo 值反推
-          if (data['clothing_items_json'] != null && data['clothing_items_json'] != '') {
+
+          if (data['clothing_items_json'] != null &&
+              data['clothing_items_json'] != '') {
             try {
-              final itemsList = json.decode(data['clothing_items_json']) as List;
+              final itemsList =
+                  json.decode(data['clothing_items_json']) as List;
               _selectedClothingItems = itemsList.cast<String>();
             } catch (e) {
               print('解析 clothing_items_json 失敗: $e');
@@ -138,42 +175,62 @@ static const Map<String, List<String>> presetClothingCombos = {
             double clo = (data['clothing_clo'] as num).toDouble();
             _selectedClothingItems = _getClothingItemsByClo(clo);
           }
-          
-          _selectedAirflowSpeed = data['airflow_speed'];
 
           _tempSelectedActivityMet = _selectedActivityMet;
           _tempSelectedClothingItems = List.from(_selectedClothingItems);
-          _tempSelectedAirflowSpeed = _selectedAirflowSpeed;
         });
         print('成功獲取節能設定: $data');
         print('已選擇衣物: $_selectedClothingItems');
       } else if (response.statusCode == 404) {
-        _showErrorSnackBar('找不到節能設定,請檢查帳戶設定');
+        // _showErrorSnackBar('找不到節能設定,請檢查帳戶設定');
       } else {
-        _showErrorSnackBar('載入節能設定失敗');
+        // _showErrorSnackBar('載入節能設定失敗');
       }
     } catch (e) {
       print('獲取節能設定時發生錯誤: $e');
-      _showErrorSnackBar('網路連線錯誤,請檢查連線狀態');
+      // _showErrorSnackBar('網路連線錯誤,請檢查連線狀態');
     }
   }
 
-  /// 從後端獲取冷氣狀態 (用於 PMV 數據)
+  /// 從後端獲取 PMV 數據及設備狀態
   Future<void> _fetchACStatus() async {
     try {
-      final response = await ApiService.get('/ac/status');
-      
+      final response = await ApiService.get('/pmv/current');
+
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        setState(() {
-          _currentRoomTemp = _safeParseInt(data['current_room_temp']);
-          _currentHumidity = _safeParseDouble(data['current_humidity']);
-          _pmvValue = _safeParseInt(data['pmv_value']);
-          _recommendedTemp = _safeParseInt(data['recommended_temp']);
-        });
+
+        if (data['success'] == true && data['data'] != null) {
+          setState(() {
+            // 溫濕度數據
+            _currentTemp = _safeParseDouble(
+                data['data']['currentEnvironment']['temperature']);
+            _currentHumidity = _safeParseDouble(
+                data['data']['currentEnvironment']['humidity']);
+
+            // PMV 數據
+            _pmvValue = _safeParseInt(data['data']['pmv']);
+            _pmvRaw = _safeParseDouble(data['data']['pmvRaw'] ?? 0.0); // ✨ 修正: 接收原始浮點數
+            _recommendedTemp = _safeParseInt(data['data']['recommendedTemp']);
+
+            if (data['data']['modelRecommendations'] != null) {
+            final recs = data['data']['modelRecommendations'];
+            _modelAcDelta = _safeParseInt(recs['acDelta']);
+            _modelFanLevel = _safeParseInt(recs['fanLevel']);
+          }
+          });
+
+          print('✓ PMV 數據獲取成功:');
+        } else {
+          print('⚠️ PMV 數據格式異常');
+        }
+      } else if (response.statusCode == 404) {
+        print('⚠️ 找不到必要的數據 (溫濕度或節能設定)');
+      } else {
+        print('⚠️ 獲取 PMV 數據失敗: ${response.statusCode}');
       }
     } catch (e) {
-      print('獲取冷氣狀態時發生錯誤: $e');
+      print('獲取 PMV 數據時發生錯誤: $e');
     }
   }
 
@@ -212,33 +269,31 @@ static const Map<String, List<String>> presetClothingCombos = {
     try {
       // 計算總 clo 值
       double totalClo = _calculateTotalClo(_tempSelectedClothingItems);
-      
-      // ✅ 將衣物列表轉為 JSON 字串
+
+      // 將衣物列表轉為 JSON 字串
       String clothingItemsJson = json.encode(_tempSelectedClothingItems);
-      
+
       final response = await ApiService.post('/energy-saving/settings', {
         'activityMet': _tempSelectedActivityMet,
         'clothingClo': totalClo,
-        'clothingItemsJson': clothingItemsJson, // ✅ 新增這行
-        'airflowSpeed': _tempSelectedAirflowSpeed,
+        'clothingItemsJson': clothingItemsJson,
       });
 
       if (response.statusCode == 200) {
         final responseData = json.decode(response.body);
         print('成功更新節能設定到後端: ${responseData['message']}');
-        
+
         setState(() {
           _selectedActivityMet = _tempSelectedActivityMet;
           _selectedClothingItems = List.from(_tempSelectedClothingItems);
-          _selectedAirflowSpeed = _tempSelectedAirflowSpeed;
-          
+
           _isEditing = false;
           _collapseAllExpansions();
         });
 
         // 更新後重新獲取 PMV 數據
         await _fetchACStatus();
-        
+
         _showSuccessSnackBar('節能設定已保存!');
       } else {
         final errorData = json.decode(response.body);
@@ -256,7 +311,6 @@ static const Map<String, List<String>> presetClothingCombos = {
   void _collapseAllExpansions() {
     _isActivityExpanded = false;
     _isClothingExpanded = false;
-    _isAirflowExpanded = false;
   }
 
   /// 切換編輯模式
@@ -266,55 +320,14 @@ static const Map<String, List<String>> presetClothingCombos = {
         _updateEnergySavingSettings();
       } else {
         _tempSelectedActivityMet = _selectedActivityMet;
-        _tempSelectedClothingItems = List.from(_selectedClothingItems); // ✅ 改這行
-        _tempSelectedAirflowSpeed = _selectedAirflowSpeed;
+        _tempSelectedClothingItems = List.from(_selectedClothingItems);
         _isEditing = true;
       }
     });
   }
 
-  /// 處理返回按鈕邏輯
-  void _handleBackPress() {
-    if (_isEditing) {
-      _showUnsavedChangesDialog();
-    } else {
-      Navigator.pop(context);
-    }
-  }
-
-  /// 顯示未保存變更的對話框
-  void _showUnsavedChangesDialog() {
-    showDialog(
-      context: context,
-      builder: (BuildContext dialogContext) {
-        return AlertDialog(
-          title: const Text('未保存的更改'),
-          content: const Text('您有未保存的節能設定。是否要放棄更改並返回?'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('取消'),
-            ),
-            TextButton(
-              onPressed: () {
-                setState(() {
-                  _isEditing = false;
-                  _fetchEnergySavingSettings();
-                  _collapseAllExpansions();
-                });
-                Navigator.of(dialogContext).pop();
-                Navigator.pop(context);
-              },
-              child: const Text('放棄', style: TextStyle(color: Colors.red)),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
   /// 處理選項變更
-  void _handleOptionChanged(String type, dynamic newValue) { // ✅ 改參數型別
+  void _handleOptionChanged(String type, dynamic newValue) {
     setState(() {
       switch (type) {
         case 'activity':
@@ -322,18 +335,13 @@ static const Map<String, List<String>> presetClothingCombos = {
           _isActivityExpanded = false;
           break;
         case 'clothing':
-        // ✅ 新增多選邏輯
-        if (newValue is String) {
-          if (_tempSelectedClothingItems.contains(newValue)) {
-            _tempSelectedClothingItems.remove(newValue);
-          } else {
-            _tempSelectedClothingItems.add(newValue);
+          if (newValue is String) {
+            if (_tempSelectedClothingItems.contains(newValue)) {
+              _tempSelectedClothingItems.remove(newValue);
+            } else {
+              _tempSelectedClothingItems.add(newValue);
+            }
           }
-        }
-        break;
-        case 'airflow':
-          _tempSelectedAirflowSpeed = newValue;
-          _isAirflowExpanded = false;
           break;
       }
     });
@@ -342,19 +350,16 @@ static const Map<String, List<String>> presetClothingCombos = {
   /// 處理展開狀態變更
   void _handleExpansionChanged(String type, bool expanded) {
     if (!_isEditing) return;
-    
+
     setState(() {
       _collapseAllExpansions();
-      
+
       switch (type) {
         case 'activity':
           _isActivityExpanded = expanded;
           break;
         case 'clothing':
           _isClothingExpanded = expanded;
-          break;
-        case 'airflow':
-          _isAirflowExpanded = expanded;
           break;
       }
     });
@@ -388,6 +393,7 @@ static const Map<String, List<String>> presetClothingCombos = {
     await _loadAllData();
   }
 
+  /// 根據 PMV 值獲取舒適度級別描述
   String _getPMVComfortLevel(int pmv) {
     if (pmv >= -1 && pmv <= 1) {
       return '舒適';
@@ -396,24 +402,41 @@ static const Map<String, List<String>> presetClothingCombos = {
     } else if (pmv >= -3 && pmv <= 3) {
       return pmv < 0 ? '冷' : '熱';
     } else {
-      return pmv < -3 ? '很冷' : '很熱';
+      return pmv < -3 ? '極冷 (超出範圍)' : '極熱 (超出範圍)';
     }
   }
+
+  /// 根據 PMV 值獲取舒適度顏色
+  Color _getComfortColor(int pmv) {
+    if (pmv >= -1 && pmv <= 1) {
+      return Colors.green;
+    } else if (pmv >= -2 && pmv <= 2) {
+      return Colors.orange;
+    } else if (pmv >= -3 && pmv <= 3) {
+      return Colors.red;
+    } else {
+      return Colors.purple;
+    }
+  }
+
+  // ----------------------------------------------------
+  // 3. 介面構建 (Build Methods)
+  // ----------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
     final activityDisplayName = _getActivityNameByMet(
-      _isEditing ? (_tempSelectedActivityMet ?? 0.0) : (_selectedActivityMet ?? 0.0)
-    );
-    // ✅ 替換成新的
-    final displayClothingItems = _isEditing ? _tempSelectedClothingItems : _selectedClothingItems;
+        _isEditing
+            ? (_tempSelectedActivityMet ?? 0.0)
+            : (_selectedActivityMet ?? 0.0));
+    final displayClothingItems =
+        _isEditing ? _tempSelectedClothingItems : _selectedClothingItems;
     final totalClo = _calculateTotalClo(displayClothingItems);
-    final clothingDisplayText = displayClothingItems.isEmpty 
-        ? '未選擇' 
+    final clothingDisplayText = displayClothingItems.isEmpty
+        ? '未選擇'
         : '${displayClothingItems.join(", ")} (總clo: ${totalClo.toStringAsFixed(2)})';
-    
-    // 移除 PopScope 和 Scaffold 的 AppBar
-    return Scaffold( // 保持 Scaffold 以提供基礎結構
+
+    return Scaffold(
       body: _isLoading
           ? const Center(
               child: Column(
@@ -436,11 +459,11 @@ static const Map<String, List<String>> presetClothingCombos = {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // *** 新增: 將原 AppBar 中的 Refresh 按鈕移到這裡 (可選) ***
+                    // 頂部刷新按鈕 (可選)
                     Row(
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
-                        if (_isEditing)
+                        if (_isEditing || !_isLoading) // 編輯或載入完成後都顯示
                           IconButton(
                             icon: const Icon(Icons.refresh),
                             onPressed: _refreshData,
@@ -493,54 +516,66 @@ static const Map<String, List<String>> presetClothingCombos = {
                       ),
                     ),
 
-                    // PMV 儀表板區域
-                    _buildPMVSection(),
+                    // 💡 左右分欄區域 (PMV + 設備狀態)
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // 左半邊: PMV 儀表板
+                        Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.only(right: 8.0),
+                            child: _buildPMVSection(),
+                          ),
+                        ),
+
+                        // 右半邊: 設備狀態卡片
+                        Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.only(left: 8.0),
+                            child: _buildDeviceStatusCard(),
+                          ),
+                        ),
+                      ],
+                    ),
                     const SizedBox(height: 32),
 
-                    // 活動類型
+                    // 活動類型 (全寬)
                     _buildExpansionTileCard(
                       title: '活動類型',
                       selectedValue: activityDisplayName,
                       isExpanded: _isActivityExpanded,
-                      onExpansionChanged: (expanded) => _handleExpansionChanged('activity', expanded),
+                      onExpansionChanged: (expanded) =>
+                          _handleExpansionChanged('activity', expanded),
                       options: _activityOptions,
-                      onOptionChanged: (value) => _handleOptionChanged('activity', value),
+                      onOptionChanged: (value) =>
+                          _handleOptionChanged('activity', value),
                       icon: Icons.directions_run,
                     ),
                     const SizedBox(height: 16),
 
-                    // ✅ 替換成新的多選卡片
+                    // 穿著類型 (全寬)
                     _buildClothingMultiSelectCard(
                       title: '穿著類型',
                       selectedItems: displayClothingItems,
                       totalClo: totalClo,
                       isExpanded: _isClothingExpanded,
-                      onExpansionChanged: (expanded) => _handleExpansionChanged('clothing', expanded),
-                      onItemToggle: (item) => _handleOptionChanged('clothing', item),
+                      onExpansionChanged: (expanded) =>
+                          _handleExpansionChanged('clothing', expanded),
+                      onItemToggle: (item) =>
+                          _handleOptionChanged('clothing', item),
                       icon: Icons.checkroom,
-                    ),
-                    const SizedBox(height: 16),
-
-                    // 空氣流速
-                    _buildExpansionTileCard(
-                      title: '空氣流速',
-                      selectedValue: _isEditing ? _tempSelectedAirflowSpeed : _selectedAirflowSpeed,
-                      isExpanded: _isAirflowExpanded,
-                      onExpansionChanged: (expanded) => _handleExpansionChanged('airflow', expanded),
-                      options: _airflowOptions,
-                      onOptionChanged: (value) => _handleOptionChanged('airflow', value),
-                      icon: Icons.air,
                     ),
                     const SizedBox(height: 32),
 
-                    // *** 移動: 編輯/保存按鈕區塊 (放到所有展開設定下方) ***
+                    // 編輯/保存按鈕區塊
                     Center(
                       child: ElevatedButton(
                         onPressed: _isSaving ? null : _toggleEditMode,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Theme.of(context).primaryColor,
                           foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 15),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 40, vertical: 15),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(10),
                           ),
@@ -554,7 +589,8 @@ static const Map<String, List<String>> presetClothingCombos = {
                                     height: 20,
                                     child: CircularProgressIndicator(
                                       strokeWidth: 2,
-                                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                          Colors.white),
                                     ),
                                   ),
                                   SizedBox(width: 8),
@@ -575,21 +611,302 @@ static const Map<String, List<String>> presetClothingCombos = {
                       ),
                     ),
                     const SizedBox(height: 32),
-                    
-                    // 當前設定總覽 (在編輯按鈕下方)
-                    if (!_isEditing && 
-                        activityDisplayName != null && 
-                        displayClothingItems.isNotEmpty && // ✅ 改這行
-                        _selectedAirflowSpeed != null)
+
+                    // 當前設定總覽
+                    if (!_isEditing &&
+                        activityDisplayName != null &&
+                        displayClothingItems.isNotEmpty)
                       _buildCurrentSettingsSummary(
-                        activityDisplayName,
-                        clothingDisplayText, // ✅ 改這行
-                        _selectedAirflowSpeed!
-                      ),
+                          activityDisplayName!, clothingDisplayText),
                   ],
                 ),
               ),
             ),
+    );
+  }
+
+  // ----------------------------------------------------
+  // 4. 構建子組件 (Widgets)
+  // ----------------------------------------------------
+
+  /// 構建 PMV 儀表板區域 (左側卡片)
+  Widget _buildPMVSection() {
+    return Container(
+      padding: const EdgeInsets.all(16.0),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(15),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.2),
+            spreadRadius: 2,
+            blurRadius: 5,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '環境與舒適度',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _buildInfoChip('溫度', '${_currentTemp.toStringAsFixed(1)}°C',
+                  Icons.device_thermostat),
+              _buildInfoChip('濕度', '${_currentHumidity.toStringAsFixed(0)}%',
+                  Icons.water_drop),
+              _buildInfoChip('建議', '$_recommendedTemp°C', Icons.recommend),
+            ],
+          ),
+          const SizedBox(height: 24),
+
+          // PMV 儀表
+          Center(
+            child: Column(
+              children: [
+                const Text(
+                  'PMV 舒適度指標',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                CustomPaint(
+                  size: const Size(200, 100), // 縮小以適應欄位寬度
+                  painter: HalfCircleGaugePainter(pmvValue: _pmvValue),
+                  child: Container(
+                    width: 200,
+                    height: 100,
+                    alignment: Alignment.bottomCenter,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'PMV',
+                          style: TextStyle(
+                              fontSize: 14, color: Colors.grey.shade600),
+                        ),
+                        Text(
+                              _pmvRaw.toStringAsFixed(2),
+                          style: TextStyle(
+                            fontSize: 36,
+                            fontWeight: FontWeight.bold,
+                            color: Theme.of(context).primaryColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: _getComfortColor(_pmvValue),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    _getPMVComfortLevel(_pmvValue),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 構建右側設備狀態卡片 (右側卡片)
+  Widget _buildDeviceStatusCard() {
+  // 顯示模型建議值
+  String acSuggestion = _modelAcDelta > 0
+      ? '降溫 ${_modelAcDelta}°C'
+      : '關閉 (或保持現狀)';
+  Color acSuggestionColor = _modelAcDelta > 0 ? Colors.red.shade700 : Colors.green.shade700;
+
+  String fanSuggestion = _modelFanLevel > 0
+      ? '調整至 ${_modelFanLevel} 檔'
+      : '關閉 (或保持現狀)';
+  Color fanSuggestionColor = _modelFanLevel > 0 ? Colors.deepOrange : Colors.green.shade700;
+
+
+  // 顯示當前設備狀態 (供參考)
+  String acStatus = _isAcOn ? '開啟 @${_acSetTemp}°C' : '關閉';
+  Color acColor = _isAcOn ? Colors.blue.shade700 : Colors.grey.shade600;
+  
+  String fanStatus = _isFanOn ? '開啟 檔位${_fanSpeed}' : '關閉';
+  Color fanColor = _isFanOn ? Colors.green.shade700 : Colors.grey.shade600;
+
+
+  return Container(
+    padding: const EdgeInsets.all(16.0),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(15),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.grey.withOpacity(0.2),
+          spreadRadius: 2,
+          blurRadius: 5,
+          offset: const Offset(0, 3),
+        ),
+      ],
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          '模型建議 (PMV 基準)',
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        ),
+        const Divider(height: 20),
+        
+        // 顯示冷氣建議
+        _buildDeviceSuggestionItem(
+          '冷氣建議',
+          acSuggestion,
+          Icons.ac_unit,
+          acSuggestionColor,
+        ),
+        const SizedBox(height: 10),
+
+        // 顯示風扇建議
+        _buildDeviceSuggestionItem(
+          '風扇建議',
+          fanSuggestion,
+          Icons.mode_fan_off,
+          fanSuggestionColor,
+        ),
+        const SizedBox(height: 20),
+        
+        // 顯示當前設備狀態
+        const Text(
+          '當前設備狀態',
+          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey),
+        ),
+        _buildDeviceStatusItem(
+          '冷氣',
+          acStatus,
+          Icons.ac_unit,
+          acColor,
+        ),
+        const SizedBox(height: 5),
+        _buildDeviceStatusItem(
+          '風扇',
+          fanStatus,
+          Icons.mode_fan_off,
+          fanColor,
+        ),
+
+        const SizedBox(height: 16),
+        Center(
+          child: TextButton.icon(
+            onPressed: () {
+              // TODO: 導航到設備控制頁面
+            },
+            icon: const Icon(Icons.settings),
+            label: const Text('前往手動控制'),
+          ),
+        )
+      ],
+    ),
+  );
+}
+
+// 【新增的子組件，用於顯示模型建議】
+Widget _buildDeviceSuggestionItem(
+    String label, String suggestion, IconData icon, Color color) {
+  return Row(
+    children: [
+      Icon(icon, size: 24, color: color),
+      const SizedBox(width: 10),
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
+            ),
+            Text(
+              suggestion,
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ],
+  );
+}
+
+  /// 構建設備狀態單項
+  Widget _buildDeviceStatusItem(
+      String label, String status, IconData icon, Color color) {
+    return Row(
+      children: [
+        Icon(icon, size: 24, color: color),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
+              ),
+              Text(
+                status,
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 構建資訊晶片 (PMV Section 內的溫濕度)
+  Widget _buildInfoChip(String label, String value, IconData icon) {
+    return Column(
+      children: [
+        Icon(icon, size: 28, color: Theme.of(context).primaryColor),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: Colors.black87,
+          ),
+        ),
+      ],
     );
   }
 
@@ -603,22 +920,21 @@ static const Map<String, List<String>> presetClothingCombos = {
     required ValueChanged<String> onItemToggle,
     required IconData icon,
   }) {
+    // ... (保持原有的 _buildClothingMultiSelectCard 邏輯不變) ...
     final Color cardBackgroundColor = _isEditing
         ? Theme.of(context).primaryColor.withOpacity(0.1)
         : Colors.grey.shade100;
-    
+
     final Color titleColor = _isEditing ? Colors.black87 : Colors.black;
     final Color subtitleColor = _isEditing ? Colors.black54 : Colors.black87;
-    final Color trailingColor = _isEditing 
-        ? Theme.of(context).primaryColor 
-        : Colors.grey;
-    final Color iconColor = _isEditing 
-        ? Theme.of(context).primaryColor 
-        : Colors.grey.shade600;
+    final Color trailingColor =
+        _isEditing ? Theme.of(context).primaryColor : Colors.grey;
+    final Color iconColor =
+        _isEditing ? Theme.of(context).primaryColor : Colors.grey.shade600;
 
     // 顯示文字
-    String displayText = selectedItems.isEmpty 
-        ? '未選擇' 
+    String displayText = selectedItems.isEmpty
+        ? '未選擇'
         : '${selectedItems.length} 件 (總clo: ${totalClo.toStringAsFixed(2)})';
 
     return Container(
@@ -651,7 +967,8 @@ static const Map<String, List<String>> presetClothingCombos = {
           style: TextStyle(
             fontSize: 14,
             color: subtitleColor,
-            fontWeight: selectedItems.isNotEmpty ? FontWeight.w500 : FontWeight.normal,
+            fontWeight:
+                selectedItems.isNotEmpty ? FontWeight.w500 : FontWeight.normal,
           ),
         ),
         trailing: Icon(
@@ -697,14 +1014,18 @@ static const Map<String, List<String>> presetClothingCombos = {
   }
 
   /// 構建預設組合按鈕
-  Widget _buildPresetButton(String presetName, ValueChanged<String> onItemToggle) {
+  Widget _buildPresetButton(
+      String presetName, ValueChanged<String> onItemToggle) {
     return ElevatedButton.icon(
-      onPressed: _isEditing ? () {
-        setState(() {
-          _tempSelectedClothingItems.clear();
-          _tempSelectedClothingItems.addAll(presetClothingCombos[presetName]!);
-        });
-      } : null,
+      onPressed: _isEditing
+          ? () {
+              setState(() {
+                _tempSelectedClothingItems.clear();
+                _tempSelectedClothingItems
+                    .addAll(presetClothingCombos[presetName]!);
+              });
+            }
+          : null,
       icon: const Icon(Icons.category, size: 16),
       label: Text(presetName),
       style: ElevatedButton.styleFrom(
@@ -741,7 +1062,7 @@ static const Map<String, List<String>> presetClothingCombos = {
                   ],
                 ),
                 value: selectedItems.contains(item),
-                onChanged: onChanged != null 
+                onChanged: onChanged != null
                     ? (checked) => onChanged(item)
                     : null,
                 activeColor: Theme.of(context).primaryColor,
@@ -751,144 +1072,8 @@ static const Map<String, List<String>> presetClothingCombos = {
     );
   }
 
-  /// 構建 PMV 儀表板區域
-  Widget _buildPMVSection() {
-    return Container(
-      padding: const EdgeInsets.all(20.0),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(15),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.2),
-            spreadRadius: 2,
-            blurRadius: 5,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // 環境資訊
-          Row(
-            children: [
-              const Text(
-                '當前環境資訊',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _buildInfoChip('溫度', '$_currentRoomTemp°C', Icons.device_thermostat),
-              _buildInfoChip('濕度', '${_currentHumidity.toStringAsFixed(1)}%', Icons.water_drop),
-              _buildInfoChip('建議', '$_recommendedTemp°C', Icons.recommend),
-            ],
-          ),
-          const SizedBox(height: 24),
-          
-          // PMV 儀表
-          Center(
-            child: Column(
-              children: [
-                const Text(
-                  'PMV 舒適度指標',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                CustomPaint(
-                  size: const Size(220, 110),
-                  painter: HalfCircleGaugePainter(pmvValue: _pmvValue),
-                  child: Container(
-                    width: 220,
-                    height: 110,
-                    alignment: Alignment.bottomCenter,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          'PMV',
-                          style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
-                        ),
-                        Text(
-                          '$_pmvValue',
-                          style: TextStyle(
-                            fontSize: 40,
-                            fontWeight: FontWeight.bold,
-                            color: Theme.of(context).primaryColor,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: _getComfortColor(_pmvValue),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    _getPMVComfortLevel(_pmvValue),
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// 構建資訊晶片
-  Widget _buildInfoChip(String label, String value, IconData icon) {
-    return Column(
-      children: [
-        Icon(icon, size: 28, color: Theme.of(context).primaryColor),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: Colors.black87,
-          ),
-        ),
-      ],
-    );
-  }
-
-  /// 根據 PMV 值獲取舒適度顏色
-  Color _getComfortColor(int pmv) {
-    if (pmv >= -1 && pmv <= 1) {
-      return Colors.green;
-    } else if (pmv >= -2 && pmv <= 2) {
-      return Colors.orange;
-    } else {
-      return Colors.red;
-    }
-  }
-
   /// 構建當前設定總覽
-  Widget _buildCurrentSettingsSummary(String activity, String clothing, String airflow) {
+  Widget _buildCurrentSettingsSummary(String activity, String clothing) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16.0),
@@ -921,7 +1106,6 @@ static const Map<String, List<String>> presetClothingCombos = {
           const SizedBox(height: 12),
           _buildSummaryItem('活動類型', activity),
           _buildSummaryItem('穿著類型', clothing),
-          _buildSummaryItem('空氣流速', airflow),
         ],
       ),
     );
@@ -958,7 +1142,7 @@ static const Map<String, List<String>> presetClothingCombos = {
     );
   }
 
-  /// 構建展開選單卡片
+  /// 構建展開選單卡片 (活動類型)
   Widget _buildExpansionTileCard({
     required String title,
     required String? selectedValue,
@@ -971,15 +1155,13 @@ static const Map<String, List<String>> presetClothingCombos = {
     final Color cardBackgroundColor = _isEditing
         ? Theme.of(context).primaryColor.withOpacity(0.1)
         : Colors.grey.shade100;
-    
+
     final Color titleColor = _isEditing ? Colors.black87 : Colors.black;
     final Color subtitleColor = _isEditing ? Colors.black54 : Colors.black87;
-    final Color trailingColor = _isEditing 
-        ? Theme.of(context).primaryColor 
-        : Colors.grey;
-    final Color iconColor = _isEditing 
-        ? Theme.of(context).primaryColor 
-        : Colors.grey.shade600;
+    final Color trailingColor =
+        _isEditing ? Theme.of(context).primaryColor : Colors.grey;
+    final Color iconColor =
+        _isEditing ? Theme.of(context).primaryColor : Colors.grey.shade600;
 
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 8.0),
@@ -1011,7 +1193,8 @@ static const Map<String, List<String>> presetClothingCombos = {
           style: TextStyle(
             fontSize: 14,
             color: subtitleColor,
-            fontWeight: selectedValue != null ? FontWeight.w500 : FontWeight.normal,
+            fontWeight:
+                selectedValue != null ? FontWeight.w500 : FontWeight.normal,
           ),
         ),
         trailing: Icon(
@@ -1039,7 +1222,7 @@ static const Map<String, List<String>> presetClothingCombos = {
     );
   }
 
-  /// 構建單選按鈕群組
+  /// 構建單選按鈕群組 (活動類型)
   Widget _buildRadioGroup({
     required String? currentValue,
     required List<String> options,
@@ -1049,7 +1232,7 @@ static const Map<String, List<String>> presetClothingCombos = {
       children: options
           .map((option) => RadioListTile<String>(
                 title: Text(
-                  option,
+                  '$option (MET: ${activityMETs[option]!.toStringAsFixed(1)})',
                   style: TextStyle(
                     fontSize: 14,
                     color: onChanged == null ? Colors.grey : Colors.black87,
@@ -1066,7 +1249,10 @@ static const Map<String, List<String>> presetClothingCombos = {
   }
 }
 
-// PMV 儀表板繪製器
+// ----------------------------------------------------
+// 5. PMV 儀表板繪製器 (Custom Painter)
+// ----------------------------------------------------
+
 class HalfCircleGaugePainter extends CustomPainter {
   final int pmvValue;
 
@@ -1095,6 +1281,25 @@ class HalfCircleGaugePainter extends CustomPainter {
       false,
       arcPaint,
     );
+
+    // 繪製舒適區間顏色 (-1 到 +1)
+    final Paint comfortPaint = Paint()
+      ..color = Colors.green.shade400
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 8;
+      
+    // 舒適區間的起始角度 (2/3 * pi)
+    const double comfortStartAngle = pi * 2 / 3;
+    // 舒適區間的掃描角度 (1/3 * pi)
+    const double comfortSweepAngle = pi / 3; 
+
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      comfortStartAngle,
+      comfortSweepAngle,
+      false,
+      comfortPaint,
+    );
   }
 
   void _drawTicks(Canvas canvas, Offset center, double radius) {
@@ -1104,14 +1309,20 @@ class HalfCircleGaugePainter extends CustomPainter {
       ..strokeWidth = 2;
 
     // 繪製刻度線和標籤
-    _drawTickWithLabel(canvas, center, radius, tickLength, tickPaint,
-        Offset(center.dx - radius, center.dy), '-3', -15, 0);
-
-    _drawTickWithLabel(canvas, center, radius, tickLength, tickPaint,
-        Offset(center.dx, center.dy - radius), '0', -5, -tickLength - 5);
-
-    _drawTickWithLabel(canvas, center, radius, tickLength, tickPaint,
-        Offset(center.dx + radius, center.dy), '3', 5, 0);
+    _drawTickWithLabel(canvas, center, radius, tickLength, tickPaint, pi,
+        '-3', -15, 0); // -3 (左側)
+    _drawTickWithLabel(canvas, center, radius, tickLength, tickPaint, pi * 5 / 6,
+        '-2', -15, -15);
+    _drawTickWithLabel(canvas, center, radius, tickLength, tickPaint, pi * 4 / 6,
+        '-1', -10, -20);
+    _drawTickWithLabel(canvas, center, radius, tickLength, tickPaint, pi * 3 / 6,
+        '0', -5, -tickLength - 5); // 0 (中間)
+    _drawTickWithLabel(canvas, center, radius, tickLength, tickPaint, pi * 2 / 6,
+        '1', 0, -20);
+    _drawTickWithLabel(canvas, center, radius, tickLength, tickPaint, pi * 1 / 6,
+        '2', 5, -15);
+    _drawTickWithLabel(canvas, center, radius, tickLength, tickPaint, 0, '3', 5,
+        0); // 3 (右側)
   }
 
   void _drawTickWithLabel(
@@ -1120,17 +1331,34 @@ class HalfCircleGaugePainter extends CustomPainter {
     double radius,
     double tickLength,
     Paint tickPaint,
-    Offset tickStart,
+    double angle,
     String label,
     double labelOffsetX,
     double labelOffsetY,
   ) {
+    final double cosAngle = cos(angle);
+    final double sinAngle = sin(angle);
+    
+    // 刻度線起點
+    final Offset tickStart = Offset(
+      center.dx + radius * cosAngle,
+      center.dy - radius * sinAngle,
+    );
+
+    // 刻度線終點 (沿著半徑向內)
+    final Offset tickEnd = Offset(
+      center.dx + (radius - tickLength) * cosAngle,
+      center.dy - (radius - tickLength) * sinAngle,
+    );
+
+    // 繪製刻度線
     canvas.drawLine(
       tickStart,
-      Offset(tickStart.dx, tickStart.dy - tickLength),
+      tickEnd,
       tickPaint,
     );
 
+    // 繪製標籤
     TextPainter(
       text: TextSpan(
         text: label,
@@ -1142,16 +1370,18 @@ class HalfCircleGaugePainter extends CustomPainter {
       ..paint(
         canvas,
         Offset(
-          tickStart.dx + labelOffsetX,
-          tickStart.dy - tickLength + labelOffsetY - 5,
+          tickEnd.dx + labelOffsetX,
+          tickEnd.dy + labelOffsetY - 5,
         ),
       );
   }
 
   void _drawPointer(Canvas canvas, Offset center, double radius) {
     final double pointerLength = radius - 15;
+    // [修正] 確保 pmvValue 介於 -3 到 3 之間，避免指針超出儀表板邊界
+    final double clampedPmv = pmvValue.clamp(-3, 3).toDouble();
     // 將 PMV 值從 -3 到 +3 映射到 0 到 1
-    final double normalizedValue = (pmvValue.clamp(-3, 3) + 3) / 6;
+    final double normalizedValue = (clampedPmv + 3) / 6;
     // 將標準化值映射到半圓弧(從左到右,即從 π 到 0)
     final double pointerAngle = pi * (1 - normalizedValue);
 
@@ -1161,6 +1391,7 @@ class HalfCircleGaugePainter extends CustomPainter {
       ..strokeWidth = 3
       ..strokeCap = StrokeCap.round;
 
+    // 指針線
     canvas.drawLine(
       center,
       Offset(
@@ -1169,6 +1400,13 @@ class HalfCircleGaugePainter extends CustomPainter {
       ),
       pointerPaint,
     );
+    
+    // 指針中心圓點
+     final Paint centerDotPaint = Paint()
+      ..color = Colors.red
+      ..style = PaintingStyle.fill;
+      
+    canvas.drawCircle(center, 5, centerDotPaint);
   }
 
   @override

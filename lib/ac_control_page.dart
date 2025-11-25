@@ -1,6 +1,3 @@
-// lib/ac_control_page.dart
-// 改進版:根據實際冷氣遙控器邏輯修正
-
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -22,7 +19,7 @@ class _ACControlPageState extends State<ACControlPage> {
 
   // 冷氣狀態變數
   bool _isACOn = false;
-  bool _isManualMode = true;
+  bool _isManualMode = true; // 從後端同步的全局模式
   int _currentSetTemp = 26; // 15-31°C
   int _selectedACModeIndex = 2; // 0:送風, 1:自動, 2:冷氣, 3:除濕
   bool _isFanSpeedLow = true; // true=低速, false=高速
@@ -114,24 +111,41 @@ class _ACControlPageState extends State<ACControlPage> {
 
   Future<void> _fetchACStatus() async {
     try {
-      final response = await http.get(
-        Uri.parse('$_baseUrl/ac/status'),
-        headers: {
-          'Content-Type': 'application/json',
-          'ngrok-skip-browser-warning': 'true',
-          'Authorization': 'Bearer $_jwtToken',
-        },
-      );
+      // 💡 核心修改: 同時獲取 AC 狀態和全局模式
+      final results = await Future.wait([
+        http.get(
+          Uri.parse('$_baseUrl/ac/status'),
+          headers: {
+            'Content-Type': 'application/json',
+            'ngrok-skip-browser-warning': 'true',
+            'Authorization': 'Bearer $_jwtToken',
+          },
+        ),
+        http.get(
+          Uri.parse('$_baseUrl/system/global-mode'),
+          headers: {
+            'Content-Type': 'application/json',
+            'ngrok-skip-browser-warning': 'true',
+            'Authorization': 'Bearer $_jwtToken',
+          },
+        ),
+      ]);
 
-      if (response.statusCode == 200) {
-        final responseData = json.decode(response.body);
+      final acResponse = results[0];
+      final globalModeResponse = results[1];
+
+      if (acResponse.statusCode == 200 && globalModeResponse.statusCode == 200) {
+        final acData = json.decode(acResponse.body);
+        final globalModeData = json.decode(globalModeResponse.body);
         
-        if (responseData['success'] == true && responseData['data'] != null) {
-          final data = responseData['data'];
+        if (acData['success'] == true && acData['data'] != null) {
+          final data = acData['data'];
           
           setState(() {
             _isACOn = data['is_on'] ?? false;
-            _isManualMode = data['is_manual_mode'] ?? true;
+            // 1. **同步全局模式狀態 (核心修改)**
+            _isManualMode = globalModeData['isManualMode'] ?? true; 
+            
             _currentSetTemp = _safeParseInt(data['current_set_temp'], 26);
             _selectedACModeIndex = data['selected_ac_mode_index'] ?? 2;
             _isFanSpeedLow = (data['fan_speed'] ?? 1) == 1; // 1=低速, 2=高速
@@ -141,10 +155,10 @@ class _ACControlPageState extends State<ACControlPage> {
         } else {
           _showErrorState('資料格式錯誤');
         }
-      } else if (response.statusCode == 401) {
+      } else if (acResponse.statusCode == 401 || globalModeResponse.statusCode == 401) {
         _showErrorState('認證失效,請重新登入');
       } else {
-        _showErrorState('取得冷氣狀態失敗');
+         _showErrorState('取得冷氣狀態失敗');
       }
     } catch (e) {
       debugPrint('取得冷氣狀態失敗: $e');
@@ -179,12 +193,12 @@ class _ACControlPageState extends State<ACControlPage> {
   }
 
   Future<void> _sendIRCommand(String action) async {
-    // 自動模式下禁止手動操作(除了開關和模式切換)
-    if (!_isManualMode && 
-        action != 'power' && 
-        action != 'mode' &&
-        action != 'sleep') {
-      _showSnackBar('請先切換到手動模式', isError: true);
+    // 檢查是否為模式或開關指令
+    final isModeOrPower = (action == 'power' || action == 'mode');
+
+    // 自動模式下禁止手動操作(除了模式和開關，以及睡眠模式)
+    if (!_isManualMode && !isModeOrPower && action != 'sleep') {
+      _showSnackBar('請先切換到手動模式才能調整設定', isError: true);
       return;
     }
 
@@ -233,6 +247,7 @@ class _ACControlPageState extends State<ACControlPage> {
             }
           });
           
+          // 刷新以獲取 DB 中的最新狀態 (包含後端 IR 調整後 DB 更新)
           await _fetchACStatus();
         } else {
           _showSnackBar(responseData['message'] ?? '控制失敗', isError: true);
@@ -248,10 +263,14 @@ class _ACControlPageState extends State<ACControlPage> {
     }
   }
 
+  // 💡 核心修改: 更新手動/自動模式 (呼叫全局 API)
   Future<void> _updateManualMode(bool value) async {
+    setState(() => _isLoading = true);
+
     try {
+      // 呼叫全局模式 API
       final response = await http.post(
-        Uri.parse('$_baseUrl/ac/manual-mode'),
+        Uri.parse('$_baseUrl/system/global-mode'),
         headers: {
           'Content-Type': 'application/json',
           'ngrok-skip-browser-warning': 'true',
@@ -261,15 +280,26 @@ class _ACControlPageState extends State<ACControlPage> {
       );
 
       if (response.statusCode == 200) {
-        setState(() => _isManualMode = value);
-        _showSnackBar(value ? '已切換到手動模式' : '已切換到自動模式');
-        await _fetchACStatus();
+        // 後端已執行同步，只需刷新本地狀態
+        await _fetchACStatus(); 
+        _showSnackBar(value ? '系統已切換到手動模式' : '系統已切換到自動模式');
       } else {
-        _showSnackBar('更新模式失敗', isError: true);
+        final responseData = json.decode(response.body);
+        _showSnackBar(responseData['message'] ?? '更新模式失敗', isError: true);
+        
+        // 切換失敗，UI 狀態恢復
+        setState(() {
+          _isManualMode = !value; 
+        });
       }
     } catch (e) {
       debugPrint('更新模式失敗: $e');
       _showSnackBar('網路連線錯誤', isError: true);
+      setState(() {
+        _isManualMode = !value; 
+      });
+    } finally {
+      setState(() => _isLoading = false);
     }
   }
 
@@ -462,13 +492,13 @@ class _ACControlPageState extends State<ACControlPage> {
           ),
           Row(
             children: [
-              const Text('自動', style: TextStyle(fontSize: 16)),
+              Text('自動', style: TextStyle(fontSize: 16, color: !_isManualMode ? Colors.blue : Colors.grey)),
               Switch(
                 value: _isManualMode,
                 onChanged: _updateManualMode,
                 activeColor: Colors.blue,
               ),
-              const Text('手動', style: TextStyle(fontSize: 16)),
+              Text('手動', style: TextStyle(fontSize: 16, color: _isManualMode ? Colors.blue : Colors.grey)),
             ],
           ),
         ],
@@ -613,8 +643,8 @@ class _ACControlPageState extends State<ACControlPage> {
                 width: 120,
                 height: 120,
                 decoration: BoxDecoration(
-                  color: _canAdjustTemperature 
-                      ? Colors.blue.shade50 
+                  color: _canAdjustTemperature
+                      ? Colors.blue.shade50
                       : Colors.grey.shade200,
                   shape: BoxShape.circle,
                   border: Border.all(
@@ -724,6 +754,8 @@ class _ACControlPageState extends State<ACControlPage> {
   }
 
   Widget _buildSleepModeControl() {
+    bool isDisabled = !_canUseSleepMode || !_isManualMode;
+    
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: _buildCardDecoration(),
@@ -749,19 +781,17 @@ class _ACControlPageState extends State<ACControlPage> {
             children: [
               Expanded(
                 child: ElevatedButton.icon(
-                  onPressed: _canUseSleepMode
-                      ? () => _sendIRCommand('sleep')
-                      : null,
+                  onPressed: isDisabled ? null : () => _sendIRCommand('sleep'),
                   icon: Icon(_isSleepMode ? Icons.bedtime : Icons.bedtime_outlined),
                   label: Text(
                     _isSleepMode ? '睡眠模式:開啟' : '睡眠模式:關閉',
                     style: const TextStyle(fontSize: 16),
                   ),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: _isSleepMode && _canUseSleepMode
+                    backgroundColor: _isSleepMode && !isDisabled
                         ? Colors.indigo
-                        : Colors.grey.shade300,
-                    foregroundColor: _isSleepMode && _canUseSleepMode
+                        : isDisabled ? Colors.grey.shade300 : Colors.grey.shade300,
+                    foregroundColor: _isSleepMode && !isDisabled
                         ? Colors.white
                         : Colors.black54,
                     padding: const EdgeInsets.symmetric(vertical: 16),
