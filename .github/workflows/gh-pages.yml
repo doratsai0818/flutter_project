@@ -24,7 +24,7 @@ jobs:
 
       # 4. 套件下載
       - name: Get dependencies
-        run: flutter pub get
+        run: flutter pub upgrade
 
       # 5. 打包 Web
       - name: Build Web Release
