@@ -24,6 +24,9 @@ class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
   double _currentTemp = 0.0;
   double _currentHumidity = 0.0;
 
+  bool _isMotionDetected = false;
+  DateTime? _lastMotionUpdate; // 新增: 上次更新時間
+
   // 節能設定選項
   double? _selectedActivityMet;
   List<String> _selectedClothingItems = []; // 多選列表
@@ -110,15 +113,19 @@ class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
 
   /// 載入所有數據
   Future<void> _loadAllData() async {
-    setState(() => _isLoading = true);
+  setState(() => _isLoading = true);
 
-    await Future.wait([
-      _fetchEnergySavingSettings(), // 先載入節能設定
-      _fetchACStatus(), // 然後獲取 PMV 數據 (依賴節能設定)
-    ]);
+  // 確保先載入依賴，然後並行載入其他狀態
+  await _fetchEnergySavingSettings(); 
+  
+  await Future.wait([
+    _fetchACStatus(), // 獲取 PMV (依賴節能設定)
+    _fetchMotionStatus(), // 載入人體移動狀態
+    // ... 其他非依賴的載入
+  ]);
 
-    setState(() => _isLoading = false);
-  }
+  setState(() => _isLoading = false);
+}
 
   /// 根據 MET 值反查活動名稱
   String? _getActivityNameByMet(double met) {
@@ -262,6 +269,58 @@ class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
     return 0.0;
   }
 
+  /// 從後端獲取人體移動狀態
+/// 從後端獲取人體移動狀態
+Future<void> _fetchMotionStatus() async {
+  try {
+    final response = await ApiService.get('/system/motion-status');
+
+    if (response.statusCode == 200) {
+      final motionData = json.decode(response.body);
+      
+      if (motionData['success'] == true) {
+        setState(() {
+          _isMotionDetected = motionData['is_motion_detected'] ?? false; 
+          
+          final lastUpdateStr = motionData['last_motion_update'];
+          
+          // ✅ 修正：正確解析 UTC 時間並轉換為本地時區
+          if (lastUpdateStr != null && lastUpdateStr.isNotEmpty) {
+            try {
+              // DateTime.parse() 會自動處理 ISO 8601 格式
+              final utcTime = DateTime.parse(lastUpdateStr);
+              // 轉換為本地時區
+              _lastMotionUpdate = utcTime.toLocal();
+            } catch (e) {
+              print('⚠️ 時間解析失敗: $e');
+              _lastMotionUpdate = null;
+            }
+          } else {
+            _lastMotionUpdate = null;
+          }
+        });
+        
+        print('✓ 人體移動狀態獲取成功: $_isMotionDetected');
+        print('✓ 上次更新時間: $_lastMotionUpdate');
+      } else {
+         print('⚠️ 人體移動狀態 API 返回數據格式異常');
+      }
+    } else {
+      print('⚠️ 獲取人體移動狀態失敗: HTTP ${response.statusCode}');
+      setState(() {
+        _isMotionDetected = false;
+        _lastMotionUpdate = null;
+      });
+    }
+  } catch (e) {
+    print('❌ 獲取人體移動狀態時發生錯誤: $e');
+    setState(() {
+      _isMotionDetected = false;
+      _lastMotionUpdate = null;
+    });
+  }
+}
+
   /// 向後端更新節能設定
   Future<void> _updateEnergySavingSettings() async {
     setState(() => _isSaving = true);
@@ -390,8 +449,10 @@ class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
   }
 
   Future<void> _refreshData() async {
-    await _loadAllData();
-  }
+  setState(() => _isLoading = true);
+  await _loadAllData();
+  setState(() => _isLoading = false);
+}
 
   /// 根據 PMV 值獲取舒適度級別描述
   String _getPMVComfortLevel(int pmv) {
@@ -648,6 +709,7 @@ class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          const SizedBox(height: 12), // 額外增加間距
           const Text(
             '環境與舒適度',
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
@@ -659,8 +721,7 @@ class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
               _buildInfoChip('溫度', '${_currentTemp.toStringAsFixed(1)}°C',
                   Icons.device_thermostat),
               _buildInfoChip('濕度', '${_currentHumidity.toStringAsFixed(0)}%',
-                  Icons.water_drop),
-              _buildInfoChip('建議', '$_recommendedTemp°C', Icons.recommend),
+                  Icons.water_drop)
             ],
           ),
           const SizedBox(height: 24),
@@ -677,7 +738,7 @@ class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
                     color: Colors.black87,
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 32),
                 CustomPaint(
                   size: const Size(200, 100), // 縮小以適應欄位寬度
                   painter: HalfCircleGaugePainter(pmvValue: _pmvValue),
@@ -735,22 +796,29 @@ class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
   // 顯示模型建議值
   String acSuggestion = _modelAcDelta > 0
       ? '降溫 ${_modelAcDelta}°C'
-      : '關閉 (或保持現狀)';
-  Color acSuggestionColor = _modelAcDelta > 0 ? Colors.red.shade700 : Colors.green.shade700;
+      : '關閉';
+  Color acSuggestionColor =
+      _modelAcDelta > 0 ? Colors.red.shade700 : Colors.green.shade700;
 
   String fanSuggestion = _modelFanLevel > 0
       ? '調整至 ${_modelFanLevel} 檔'
-      : '關閉 (或保持現狀)';
-  Color fanSuggestionColor = _modelFanLevel > 0 ? Colors.deepOrange : Colors.green.shade700;
+      : '關閉';
+  Color fanSuggestionColor =
+      _modelFanLevel > 0 ? Colors.deepOrange : Colors.green.shade700;
 
+      // 新增: 處理人體移動狀態的顯示
+  String motionStatus = _isMotionDetected ? '偵測到有人' : '長時間無人';
+  Color motionColor = _isMotionDetected ? Colors.green.shade700 : Colors.orange.shade700;
+  String lastUpdateText = _lastMotionUpdate != null 
+    ? '上次更新: ${_lastMotionUpdate!.hour.toString().padLeft(2, '0')}:${_lastMotionUpdate!.minute.toString().padLeft(2, '0')}:${_lastMotionUpdate!.second.toString().padLeft(2, '0')}'
+    : '無記錄'; // 確保這行代碼正確
 
-  // 顯示當前設備狀態 (供參考)
-  String acStatus = _isAcOn ? '開啟 @${_acSetTemp}°C' : '關閉';
-  Color acColor = _isAcOn ? Colors.blue.shade700 : Colors.grey.shade600;
-  
-  String fanStatus = _isFanOn ? '開啟 檔位${_fanSpeed}' : '關閉';
-  Color fanColor = _isFanOn ? Colors.green.shade700 : Colors.grey.shade600;
-
+  // 註釋掉原始代碼中用於顯示當前狀態的變數
+  // String acStatus = _isAcOn ? '開啟 @${_acSetTemp}°C' : '關閉';
+  // Color acColor = _isAcOn ? Colors.blue.shade700 : Colors.grey.shade600;
+  //
+  // String fanStatus = _isFanOn ? '開啟 檔位${_fanSpeed}' : '關閉';
+  // Color fanColor = _isFanOn ? Colors.green.shade700 : Colors.grey.shade600;
 
   return Container(
     padding: const EdgeInsets.all(16.0),
@@ -770,11 +838,30 @@ class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
+          '人體移動狀態 (MQTT)',
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        ),
+        const Divider(height: 10),
+        _buildDeviceSuggestionItem(
+          '當前狀態',
+          motionStatus,
+          _isMotionDetected ? Icons.person : Icons.person_off,
+          motionColor,
+        ),
+        Padding(
+          padding: const EdgeInsets.only(left: 34.0, top: 4.0, bottom: 16.0),
+          child: Text(
+            lastUpdateText,
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+          ),
+        ),
+        const Divider(height: 20),
+        const Text(
           '模型建議 (PMV 基準)',
           style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
         ),
         const Divider(height: 20),
-        
+
         // 顯示冷氣建議
         _buildDeviceSuggestionItem(
           '冷氣建議',
@@ -791,27 +878,6 @@ class _EnergySavingSettingsPageState extends State<EnergySavingSettingsPage> {
           Icons.mode_fan_off,
           fanSuggestionColor,
         ),
-        const SizedBox(height: 20),
-        
-        // 顯示當前設備狀態
-        const Text(
-          '當前設備狀態',
-          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey),
-        ),
-        _buildDeviceStatusItem(
-          '冷氣',
-          acStatus,
-          Icons.ac_unit,
-          acColor,
-        ),
-        const SizedBox(height: 5),
-        _buildDeviceStatusItem(
-          '風扇',
-          fanStatus,
-          Icons.mode_fan_off,
-          fanColor,
-        ),
-
         const SizedBox(height: 16),
         Center(
           child: TextButton.icon(
@@ -1269,112 +1335,142 @@ class HalfCircleGaugePainter extends CustomPainter {
   }
 
   void _drawArc(Canvas canvas, Offset center, double radius) {
-    final Paint arcPaint = Paint()
-      ..color = Colors.grey.shade300
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 5;
+  final Paint arcPaint = Paint()
+    ..color = Colors.grey.shade300
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 5;
 
-    canvas.drawArc(
-      Rect.fromCircle(center: center, radius: radius),
-      pi,
-      pi,
-      false,
-      arcPaint,
-    );
+  // 繪製背景灰弧
+  // 從 pi (180度, 左側) 逆時針掃描 pi (到 360/0度, 右側)
+  canvas.drawArc(
+    Rect.fromCircle(center: center, radius: radius),
+    pi, 
+    pi, 
+    false,
+    arcPaint,
+  );
+  
+  // ----------------------------------------------------------------------
+  // 修正舒適區間繪製位置：強制將其畫在上半圓 (0 到 pi) 區間內
+  // ----------------------------------------------------------------------
 
-    // 繪製舒適區間顏色 (-1 到 +1)
-    final Paint comfortPaint = Paint()
-      ..color = Colors.green.shade400
+  // 繪製嚴格舒適區間：從 PMV +0.5 到 -0.5
+  final Paint comfortPaint = Paint()
+      ..color = Colors.green.shade600 
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 8;
-      
-    // 舒適區間的起始角度 (2/3 * pi)
-    const double comfortStartAngle = pi * 2 / 3;
-    // 舒適區間的掃描角度 (1/3 * pi)
-    const double comfortSweepAngle = pi / 3; 
+      ..strokeWidth = 10; 
+
+    // PMV +0.5 的角度 (5pi/12) + pi 
+    const double comfortStartAngle = pi * 5 / 12 + pi; 
+    
+    // 掃描角度: pi/6 (保持逆時針)
+    const double comfortSweepAngle = pi / 6;
 
     canvas.drawArc(
       Rect.fromCircle(center: center, radius: radius),
       comfortStartAngle,
       comfortSweepAngle,
-      false,
+      false, 
       comfortPaint,
-    );
-  }
+  );
+}
+// 這是與修正後的 _drawTickWithLabel 匹配的 _drawTicks 函數：
+void _drawTicks(Canvas canvas, Offset center, double radius) {
+  const double tickLength = 10; 
+  final Paint tickPaint = Paint()
+    ..color = Colors.black
+    ..strokeWidth = 2;
 
-  void _drawTicks(Canvas canvas, Offset center, double radius) {
-    const double tickLength = 10;
-    final Paint tickPaint = Paint()
-      ..color = Colors.black
-      ..strokeWidth = 2;
+  // 繪製刻度線和標籤
+  
+  // PMV -3 (180°)
+  _drawTickWithLabel(canvas, center, radius, tickLength, tickPaint, pi,
+      '-3'); 
 
-    // 繪製刻度線和標籤
-    _drawTickWithLabel(canvas, center, radius, tickLength, tickPaint, pi,
-        '-3', -15, 0); // -3 (左側)
-    _drawTickWithLabel(canvas, center, radius, tickLength, tickPaint, pi * 5 / 6,
-        '-2', -15, -15);
-    _drawTickWithLabel(canvas, center, radius, tickLength, tickPaint, pi * 4 / 6,
-        '-1', -10, -20);
-    _drawTickWithLabel(canvas, center, radius, tickLength, tickPaint, pi * 3 / 6,
-        '0', -5, -tickLength - 5); // 0 (中間)
-    _drawTickWithLabel(canvas, center, radius, tickLength, tickPaint, pi * 2 / 6,
-        '1', 0, -20);
-    _drawTickWithLabel(canvas, center, radius, tickLength, tickPaint, pi * 1 / 6,
-        '2', 5, -15);
-    _drawTickWithLabel(canvas, center, radius, tickLength, tickPaint, 0, '3', 5,
-        0); // 3 (右側)
-  }
+  // PMV -2 (150°)
+  _drawTickWithLabel(canvas, center, radius, tickLength, tickPaint, pi * 5 / 6,
+      '-2');
 
-  void _drawTickWithLabel(
+  // PMV -1 (120°)
+  _drawTickWithLabel(canvas, center, radius, tickLength, tickPaint, pi * 4 / 6,
+      '-1');
+
+  // PMV 0 (90°)
+  _drawTickWithLabel(canvas, center, radius, tickLength, tickPaint, pi * 3 / 6,
+      '0');
+
+  // PMV 1 (60°)
+  _drawTickWithLabel(canvas, center, radius, tickLength, tickPaint, pi * 2 / 6,
+      '1');
+
+  // PMV 2 (30°)
+  _drawTickWithLabel(canvas, center, radius, tickLength, tickPaint, pi * 1 / 6,
+      '2');
+
+  // PMV 3 (0°)
+  _drawTickWithLabel(canvas, center, radius, tickLength, tickPaint, 0, 
+      '3'); 
+}
+
+void _drawTickWithLabel(
     Canvas canvas,
     Offset center,
     double radius,
     double tickLength,
     Paint tickPaint,
     double angle,
-    String label,
-    double labelOffsetX,
-    double labelOffsetY,
-  ) {
-    final double cosAngle = cos(angle);
-    final double sinAngle = sin(angle);
+    String label) {
     
-    // 刻度線起點
-    final Offset tickStart = Offset(
-      center.dx + radius * cosAngle,
-      center.dy - radius * sinAngle,
-    );
+  // 標籤到圓心的半徑，使其位於圓弧外側
+  const double labelRadiusOffset = 25; // 這是確保標籤在圓弧外側的關鍵距離
+  final double labelRadius = radius + labelRadiusOffset;
+    
+  final double cosAngle = cos(angle);
+  final double sinAngle = sin(angle);
+    
+  // 刻度線起點 (圓弧內側)
+  final Offset tickStart = Offset(
+    center.dx + radius * cosAngle,
+    center.dy - radius * sinAngle,
+  );
 
-    // 刻度線終點 (沿著半徑向內)
-    final Offset tickEnd = Offset(
-      center.dx + (radius - tickLength) * cosAngle,
-      center.dy - (radius - tickLength) * sinAngle,
-    );
+  // 刻度線終點 (圓弧外側，即灰色背景外緣)
+  final Offset tickEnd = Offset(
+    center.dx + (radius + tickLength) * cosAngle,
+    center.dy - (radius + tickLength) * sinAngle,
+  );
 
-    // 繪製刻度線
-    canvas.drawLine(
-      tickStart,
-      tickEnd,
-      tickPaint,
-    );
+  // 繪製刻度線
+  canvas.drawLine(
+    tickStart,
+    tickEnd,
+    tickPaint,
+  );
 
-    // 繪製標籤
-    TextPainter(
-      text: TextSpan(
-        text: label,
-        style: const TextStyle(color: Colors.black, fontSize: 12),
-      ),
-      textDirection: TextDirection.ltr,
-    )
-      ..layout()
-      ..paint(
-        canvas,
-        Offset(
-          tickEnd.dx + labelOffsetX,
-          tickEnd.dy + labelOffsetY - 5,
-        ),
-      );
-  }
+  // 計算標籤的繪圖位置
+  final TextPainter tp = TextPainter(
+    text: TextSpan(
+      text: label,
+      // 使用與其他標籤相同的樣式
+      style: const TextStyle(color: Colors.black, fontSize: 14, fontWeight: FontWeight.bold),
+    ),
+    textDirection: TextDirection.ltr,
+    textAlign: TextAlign.center, // 確保文本繪圖是居中對齊
+  )..layout();
+    
+  // 計算標籤中心點的理想位置 (沿徑向方向推開)
+  final double textX = center.dx + labelRadius * cosAngle;
+  final double textY = center.dy - labelRadius * sinAngle;
+
+  // 調整標籤位置以使其底部或中心點與目標對齊
+  tp.paint(
+    canvas,
+    Offset(
+      textX - tp.width / 2, // 居中對齊 X 軸
+      textY - tp.height / 2, // 居中對齊 Y 軸
+    ),
+  );
+}
 
   void _drawPointer(Canvas canvas, Offset center, double radius) {
     final double pointerLength = radius - 15;
