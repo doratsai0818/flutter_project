@@ -616,17 +616,12 @@ class _PowerMonitoringPageState extends State<PowerMonitoringPage> {
                     return Expanded(
                       child: GestureDetector(
                         onTap: () {
-                          // ✅ 延遲更新避免衝突
-                          if (mounted && !_isUpdating) {
-                            SchedulerBinding.instance.addPostFrameCallback((_) {
-                              if (mounted) {
-                                setState(() {
-                                  _selectedPlugIndex = index;
-                                });
-                              }
-                            });
-                          }
-                        },
+                            if (mounted && _selectedPlugIndex != index) {
+                              setState(() {
+                                _selectedPlugIndex = index;
+                              });
+                            }
+                          },
                         child: Container(
                           margin: const EdgeInsets.all(4),
                           decoration: BoxDecoration(

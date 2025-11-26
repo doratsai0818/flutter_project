@@ -784,6 +784,7 @@ class MainScreen extends StatefulWidget {
   State<MainScreen> createState() => _MainScreenState();
 }
 
+
 class _MainScreenState extends State<MainScreen> {
   int _selectedIndex = 0;
   Map<String, String?> _userData = {};
@@ -805,14 +806,15 @@ class _MainScreenState extends State<MainScreen> {
     final token = await TokenService.getToken();
     if (mounted) {
       setState(() {
+        // ✅ 調整頁面順序以配合側邊欄
         _pages = <Widget>[
-          const HomePage(),
-          const LightingControlPage(),
-          ACControlPage(jwtToken: token!),
-          const PowerMonitoringPage(),
-          FanControlPage(jwtToken: token),
-          const EnergyEfficiencyPage(),
-          const EnergySavingSettingsPage(),
+          const HomePage(),              // 0: 首頁
+          const LightingControlPage(),   // 1: 燈光控制
+          ACControlPage(jwtToken: token!), // 2: 冷氣控制
+          FanControlPage(jwtToken: token), // 3: 風扇控制
+          const EnergySavingSettingsPage(), // 4: 節能設定
+          const PowerMonitoringPage(),   // 5: 用電監控
+          const EnergyEfficiencyPage(),  // 6: 省電效能展示
         ];
         _isLoadingPages = false;
       });
@@ -828,16 +830,17 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
+  // ✅ 更新頁面標題對應
   String _getPageTitle(int index) {
     if (_pages == null || index >= _pages!.length) return '智慧節能系統';
     switch (index) {
       case 0: return '首頁';
       case 1: return '燈光控制';
       case 2: return '冷氣控制';
-      case 3: return '用電監控';
-      case 4: return '風扇控制';
-      case 5: return '省電效能展示';
-      case 6: return '節能設定';
+      case 3: return '風扇控制';
+      case 4: return '節能設定';
+      case 5: return '用電監控';
+      case 6: return '省電效能展示';
       default: return '智慧節能系統';
     }
   }
@@ -916,6 +919,7 @@ class _MainScreenState extends State<MainScreen> {
         child: ListView(
           padding: EdgeInsets.zero,
           children: <Widget>[
+            // ===== 用戶資訊標題 =====
             UserAccountsDrawerHeader(
               decoration: const BoxDecoration(
                 color: Colors.deepPurple,
@@ -931,49 +935,69 @@ class _MainScreenState extends State<MainScreen> {
                 ),
               ),
             ),
+            
+            // ===== ✅ 調整後的側邊欄項目順序 =====
+            
+            // 0: 首頁
             ListTile(
               leading: const Icon(Icons.home),
               title: const Text('首頁'),
               selected: _selectedIndex == 0,
               onTap: () => _onDrawerItemTapped(0),
             ),
+            
+            // 1: 燈光控制
             ListTile(
               leading: const Icon(Icons.lightbulb),
               title: const Text('燈光控制'),
               selected: _selectedIndex == 1,
               onTap: () => _onDrawerItemTapped(1),
             ),
+            
+            // 2: 冷氣控制
             ListTile(
               leading: const Icon(Icons.ac_unit),
               title: const Text('冷氣控制'),
               selected: _selectedIndex == 2,
               onTap: () => _onDrawerItemTapped(2),
             ),
-            ListTile(
-              leading: const Icon(Icons.power),
-              title: const Text('用電監控'),
-              selected: _selectedIndex == 3,
-              onTap: () => _onDrawerItemTapped(3),
-            ),
+            
+            // 3: 風扇控制
             ListTile(
               leading: const Icon(Icons.air),
               title: const Text('風扇控制'),
-              selected: _selectedIndex == 4,
-              onTap: () => _onDrawerItemTapped(4),
+              selected: _selectedIndex == 3,
+              onTap: () => _onDrawerItemTapped(3),
             ),
-            ListTile(
-              leading: const Icon(Icons.offline_bolt),
-              title: const Text('省電效能展示'),
-              selected: _selectedIndex == 5,
-              onTap: () => _onDrawerItemTapped(5),
-            ),
+            
+            // 4: 節能設定
             ListTile(
               leading: const Icon(Icons.eco),
               title: const Text('節能設定'),
+              selected: _selectedIndex == 4,
+              onTap: () => _onDrawerItemTapped(4),
+            ),
+            
+            // 5: 用電監控
+            ListTile(
+              leading: const Icon(Icons.power),
+              title: const Text('用電監控'),
+              selected: _selectedIndex == 5,
+              onTap: () => _onDrawerItemTapped(5),
+            ),
+            
+            // 6: 省電效能展示
+            ListTile(
+              leading: const Icon(Icons.offline_bolt),
+              title: const Text('省電效能展示'),
               selected: _selectedIndex == 6,
               onTap: () => _onDrawerItemTapped(6),
             ),
+            
+            // ===== 分隔線 =====
             const Divider(),
+            
+            // ===== 登出按鈕 =====
             ListTile(
               leading: const Icon(Icons.logout, color: Colors.red),
               title: const Text('登出', style: TextStyle(color: Colors.red)),

@@ -879,15 +879,7 @@ Future<void> _fetchMotionStatus() async {
           fanSuggestionColor,
         ),
         const SizedBox(height: 16),
-        Center(
-          child: TextButton.icon(
-            onPressed: () {
-              // TODO: 導航到設備控制頁面
-            },
-            icon: const Icon(Icons.settings),
-            label: const Text('前往手動控制'),
-          ),
-        )
+        
       ],
     ),
   );
