@@ -1,5 +1,6 @@
 // main.dart - Fixed Version
-
+import 'package:provider/provider.dart';
+import 'package:iot_project/music_service.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
@@ -79,28 +80,31 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: '智慧節能系統',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-        visualDensity: VisualDensity.adaptivePlatformDensity,
-        useMaterial3: true,
-      ),
-      
-      localizationsDelegates: const [
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      supportedLocales: const [
-        Locale('zh', 'TW'),
-        Locale('en', 'US'),
-      ],
-      locale: const Locale('zh', 'TW'),
-      
-      home: const AuthWrapper(),
-      debugShowCheckedModeBanner: false,
-    );
+    return ChangeNotifierProvider(  // ✨ 新增這行
+      create: (_) => MusicService(),  // ✨ 新增這行
+      child: MaterialApp(  // ✨ 原本的 MaterialApp 變成 child
+        title: '智慧節能系統',
+        theme: ThemeData(
+          primarySwatch: Colors.blue,
+          visualDensity: VisualDensity.adaptivePlatformDensity,
+          useMaterial3: true,
+        ),
+        
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        supportedLocales: const [
+          Locale('zh', 'TW'),
+          Locale('en', 'US'),
+        ],
+        locale: const Locale('zh', 'TW'),
+        
+        home: const AuthWrapper(),
+        debugShowCheckedModeBanner: false,
+      ),  // ✨ 新增這行
+    );  // ✨ 新增這行
   }
 }
 
@@ -232,7 +236,26 @@ class _AuthWrapperState extends State<AuthWrapper> {
   }
 
   Future<void> _logout() async {
+    // 🎵 停止音樂播放
+    try {
+      final musicService = MusicService();
+      await musicService.stopMusic();
+      print('🎵 登出時停止音樂');
+    } catch (e) {
+      print('❌ 停止音樂失敗: $e');
+    }
+    
+    // 🔧 呼叫後端 API 停止所有情境
+    try {
+      await ApiService.post('/wiz-lights/scene/stop', {});
+      print('🔧 登出時停止所有情境');
+    } catch (e) {
+      print('❌ 停止情境失敗: $e');
+    }
+    
+    // 清除認證資料
     await TokenService.clearAuthData();
+    
     if (mounted) {
       setState(() {
         _isLoggedIn = false;

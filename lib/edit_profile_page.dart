@@ -449,23 +449,25 @@ class _EditProfilePageState extends State<EditProfilePage> {
               style: const TextStyle(fontSize: 40, fontWeight: FontWeight.bold),
             ),
           ),
-          if (_isEditing)
-            Positioned(
-              bottom: 0,
-              right: 0,
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Theme.of(context).primaryColor,
-                  shape: BoxShape.circle,
-                ),
-                child: IconButton(
-                  icon: const Icon(Icons.camera_alt, color: Colors.white, size: 20),
-                  onPressed: () {
-                    _showSnackBar('頭像更換功能即將推出');
-                  },
-                ),
-              ),
-            ),
+          // 移除 if (_isEditing) 條件下的相機按鈕
+          // 原來的程式碼：
+          // if (_isEditing)
+          //   Positioned(
+          //     bottom: 0,
+          //     right: 0,
+          //     child: Container(
+          //       decoration: BoxDecoration(
+          //         color: Theme.of(context).primaryColor,
+          //         shape: BoxShape.circle,
+          //       ),
+          //       child: IconButton(
+          //         icon: const Icon(Icons.camera_alt, color: Colors.white, size: 20),
+          //         onPressed: () {
+          //           _showSnackBar('頭像更換功能即將推出');
+          //         },
+          //       ),
+          //     ),
+          //   ),
         ],
       ),
     );

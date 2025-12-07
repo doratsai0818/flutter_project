@@ -2,7 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'dart:convert';
-import 'package:iot_project/main.dart'; // 引入 main.dart 以使用 ApiService
+import 'package:iot_project/main.dart';
 import 'dart:async';
 
 class HomePage extends StatefulWidget {
@@ -13,17 +13,14 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-    // 概況總覽數據
     String _totalPowerToday = '...';
     String _currentTemperature = '...';
     String _currentHumidity = '...';
     String _acSetTemp = '(未設置)';
     String _fanSpeed = '(未設置)';
 
-    // 裝置列表
     List<Map<String, dynamic>> _devices = [];
     
-    // 載入狀態
     bool _isLoading = true;
 
     @override
@@ -38,8 +35,6 @@ class _HomePageState extends State<HomePage> {
         });
         
         try {
-            // ✅ 使用 Future.wait 並行請求所有 API,大幅減少等待時間
-            // ✅ 增加 10 秒超時保護
             final results = await Future.wait([
                 ApiService.get('/power-total-today'),
                 ApiService.get('/temp-humidity/status'),
@@ -50,7 +45,6 @@ class _HomePageState extends State<HomePage> {
                 onTimeout: () => throw TimeoutException('請求超時', const Duration(seconds: 10))
             );
 
-            // 處理今日累積用電量
             if (results[0].statusCode == 200) {
                 final data = json.decode(results[0].body);
                 setState(() {
@@ -58,7 +52,6 @@ class _HomePageState extends State<HomePage> {
                 });
             }
 
-            // 處理目前環境溫溼度
             if (results[1].statusCode == 200) {
                 final data = json.decode(results[1].body);
                 if (data['success'] == true && data['data'] != null) {
@@ -69,7 +62,6 @@ class _HomePageState extends State<HomePage> {
                 }
             }
 
-            // 處理冷氣設置溫度
             if (results[2].statusCode == 200) {
                 final data = json.decode(results[2].body);
                 if (data['success'] == true && data['data'] != null) {
@@ -80,7 +72,6 @@ class _HomePageState extends State<HomePage> {
                 }
             }
 
-            // 處理風扇設置檔數
             if (results[3].statusCode == 200) {
                 final data = json.decode(results[3].body);
                 if (data['success'] == true && data['data'] != null) {
@@ -96,12 +87,10 @@ class _HomePageState extends State<HomePage> {
                 }
             }
 
-            // ✅ 立即顯示概況數據,不等待裝置列表
             setState(() {
                 _isLoading = false;
             });
 
-            // ✅ 背景載入裝置列表,不阻塞 UI
             _fetchDevices();
 
         } on TimeoutException catch (e) {
@@ -112,7 +101,6 @@ class _HomePageState extends State<HomePage> {
             _showErrorSnackBar('請求超時,請檢查網路連線');
         } catch (e) {
             print('Error fetching data: $e');
-            // ✅ 即使失敗也結束載入狀態
             setState(() {
                 _isLoading = false;
             });
@@ -124,8 +112,11 @@ class _HomePageState extends State<HomePage> {
     try {
         print('\n========== 開始載入裝置列表 ==========');
         List<Map<String, dynamic>> devicesList = [];
+        
+        // ✅ 使用 Set 來追蹤已添加的裝置 ID,避免重複
+        Set<String> addedDeviceIds = {};
 
-        // ==================== 1. 溫溼度感測器 (逐一請求) ====================
+        // ==================== 1. 溫溼度感測器 ====================
         print('\n[1/3] 正在請求溫溼度感測器...');
         try {
             final tempResponse = await ApiService.get('/temp-humidity/status')
@@ -137,18 +128,22 @@ class _HomePageState extends State<HomePage> {
                 final data = json.decode(tempResponse.body);
                 print('溫溼度感測器回應: $data');
                 
-                if (data['success'] == true && data['data'] != null) {
-                    print('✅ 溫溼度感測器符合條件');
+                // 🔥 修改：只要 API 成功就顯示（不檢查 success 和 data）
+                final deviceId = 'temp_sensor';
+                
+                if (!addedDeviceIds.contains(deviceId)) {
+                    print('✅ 溫溼度感測器 API 成功,新增到列表');
                     devicesList.add({
-                        'id': 'temp_sensor',
+                        'id': deviceId,
                         'name': '溫溼度感測器',
                         'type': 'sensor',
                         'status': '線上',
                         'icon': Icons.sensors,
                         'color': Colors.green,
                     });
+                    addedDeviceIds.add(deviceId);
                 } else {
-                    print('⚠️ 溫溼度感測器不符合條件 (success=${data['success']}, data=${data['data']})');
+                    print('⚠️ 溫溼度感測器已存在,跳過重複添加');
                 }
             } else {
                 print('❌ 溫溼度感測器請求失敗: HTTP ${tempResponse.statusCode}');
@@ -157,7 +152,7 @@ class _HomePageState extends State<HomePage> {
             print('❌ 溫溼度感測器請求異常: $e');
         }
 
-        // ==================== 2. Tuya 插座 (逐一請求) ====================
+        // ==================== 2. Tuya 插座 ====================
         print('\n[2/3] 正在請求 Tuya 插座...');
         try {
             final plugResponse = await ApiService.get('/tuya-plugs/status')
@@ -175,26 +170,35 @@ class _HomePageState extends State<HomePage> {
                     
                     for (int i = 0; i < plugs.length; i++) {
                         final plug = plugs[i];
-                        final isConnected = plug['connected'] ?? false;
+                        final plugName = plug['name'] ?? '插座${i + 1}';
+                        final deviceId = 'plug_${i + 1}';
                         
-                        print('  插座 ${i + 1}: ${plug['name']} - connected: $isConnected');
+                        // 🔥 關鍵：排除溫溼度感測器
+                        if (plugName.contains('溫溼度') || plugName.contains('溫濕度')) {
+                            print('  插座 ${i + 1}: $plugName - 跳過溫溼度感測器');
+                            continue;
+                        }
                         
-                        if (isConnected) {
-                            print('  ✅ 已連接,新增到列表');
+                        print('  插座 ${i + 1}: $plugName');
+                        
+                        // 🔥 修改：只要有資料就顯示（不檢查 connected）
+                        if (!addedDeviceIds.contains(deviceId)) {
+                            print('  ✅ 插座資料存在,新增到列表');
                             devicesList.add({
-                                'id': 'plug_${i + 1}',
-                                'name': plug['name'] ?? '插座${i + 1}',
+                                'id': deviceId,
+                                'name': plugName,
                                 'type': 'plug',
                                 'status': '線上',
                                 'icon': Icons.power,
                                 'color': Colors.green,
                             });
+                            addedDeviceIds.add(deviceId);
                         } else {
-                            print('  ⚠️ 未連接,跳過');
+                            print('  ⚠️ 已存在,跳過重複添加');
                         }
                     }
                 } else {
-                    print('⚠️ Tuya 插座不符合條件 (success=${data['success']}, data=${data['data']})');
+                    print('⚠️ Tuya 插座回應格式錯誤');
                 }
             } else {
                 print('❌ Tuya 插座請求失敗: HTTP ${plugResponse.statusCode}');
@@ -203,11 +207,11 @@ class _HomePageState extends State<HomePage> {
             print('❌ Tuya 插座請求異常: $e');
         }
 
-        // ==================== 3. WIZ 燈泡 (逐一請求) ====================
+        // ==================== 3. WIZ 燈泡 ====================
         print('\n[3/3] 正在請求 WIZ 燈泡...');
         try {
             final lightResponse = await ApiService.get('/wiz-lights/status')
-                .timeout(const Duration(seconds: 10)); // WIZ 可能需要更長時間
+                .timeout(const Duration(seconds: 10));
             
             print('WIZ 燈泡 HTTP 狀態碼: ${lightResponse.statusCode}');
             
@@ -223,21 +227,26 @@ class _HomePageState extends State<HomePage> {
                         final light = lights[i];
                         final hasError = light['error'] != null;
                         final isOn = light['isOn'] ?? false;
+                        final deviceId = 'light_${i + 1}';
                         
                         print('  燈泡 ${i + 1}: ${light['name']} - isOn: $isOn, hasError: $hasError');
                         
-                        if (!hasError) {
+                        // ✅ 檢查是否無錯誤且未重複添加
+                        if (!hasError && !addedDeviceIds.contains(deviceId)) {
                             print('  ✅ 無錯誤,新增到列表');
                             devicesList.add({
-                                'id': 'light_${i + 1}',
+                                'id': deviceId,
                                 'name': light['name'] ?? '燈泡${i + 1}',
                                 'type': 'light',
                                 'status': isOn ? '開啟' : '關閉',
                                 'icon': Icons.lightbulb,
                                 'color': isOn ? Colors.amber : Colors.grey,
                             });
-                        } else {
+                            addedDeviceIds.add(deviceId);
+                        } else if (hasError) {
                             print('  ⚠️ 有錯誤: ${light['error']},跳過');
+                        } else {
+                            print('  ⚠️ 已存在,跳過重複添加');
                         }
                     }
                 } else {
@@ -252,13 +261,12 @@ class _HomePageState extends State<HomePage> {
 
         // ==================== 結果 ====================
         print('\n========== 裝置載入完成 ==========');
-        print('總共找到 ${devicesList.length} 個裝置');
+        print('總共找到 ${devicesList.length} 個裝置 (已去除重複)');
         for (var device in devicesList) {
             print('  - ${device['name']} (${device['type']}) - ${device['status']}');
         }
         print('====================================\n');
 
-        // 更新 UI
         if (mounted) {
             setState(() {
                 _devices = devicesList;
@@ -310,14 +318,12 @@ class _HomePageState extends State<HomePage> {
                     : Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                            // 概況總覽區域
                             const Text(
                                 '概況總覽',
                                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                             ),
                             const SizedBox(height: 16),
                             
-                            // 第一行:今日累積用電量 & 目前環境溫溼度
                             Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                                 children: [
@@ -420,7 +426,6 @@ class _HomePageState extends State<HomePage> {
                             ),
                             const SizedBox(height: 16),
                             
-                            // 第二行:冷氣設置溫度 & 風扇設置檔數
                             Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                                 children: [
@@ -482,7 +487,6 @@ class _HomePageState extends State<HomePage> {
                             ),
                             const SizedBox(height: 32),
 
-                            // 裝置列表區域
                             Text(
                                 '我的裝置(${_devices.length})',
                                 style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),

@@ -10,7 +10,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:csv/csv.dart';
-import 'package:excel/excel.dart' as excel_pkg;
+// import 'package:excel/excel.dart' as excel_pkg; // 移除對 excel_pkg 的引用
 import 'package:share_plus/share_plus.dart';
 
 // Token 管理服務
@@ -83,10 +83,10 @@ class _PowerMonitoringPageState extends State<PowerMonitoringPage> {
   
   // 四個插座的設備資訊 (MAC 地址)
   final List<Map<String, String>> _devices = [
-    {'id': '3c0b59a0261b', 'name': '1號插座'},
-    {'id': '3c0b59a03293', 'name': '2號插座'},
-    {'id': '80647cafe420', 'name': '3號插座'},
-    {'id': '80647cafb7dd', 'name': '4號插座'},
+    {'id': '3c0b59a0261b', 'name': '1號門口燈泡插座'},
+    {'id': '3c0b59a03293', 'name': '冷氣插座'},
+    {'id': '80647cafe420', 'name': '2號門口燈泡插座'},
+    {'id': '80647cafb7dd', 'name': '風扇插座'},
   ];
 
   // 當前選中的插座索引
@@ -197,7 +197,7 @@ class _PowerMonitoringPageState extends State<PowerMonitoringPage> {
     }
   }
 
-   /// 🔧 修復版本: 獲取歷史資料(用於圖表)
+    /// 🔧 修復版本: 獲取歷史資料(用於圖表)
   Future<void> _fetchHistoricalData() async {
     if (!mounted) return;
     
@@ -212,52 +212,66 @@ class _PowerMonitoringPageState extends State<PowerMonitoringPage> {
     });
 
     try {
-      // 計算時間範圍
-      DateTime endTime = _selectedDate;
-      DateTime startTime;
-      
-      switch (_selectedChartMode) {
-        case ChartMode.daily:
-          startTime = DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day, 0, 0);
-          endTime = DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day, 23, 59);
-          break;
-        case ChartMode.weekly:
-          startTime = _selectedDate.subtract(Duration(days: _selectedDate.weekday - 1));
-          startTime = DateTime(startTime.year, startTime.month, startTime.day, 0, 0);
-          endTime = startTime.add(const Duration(days: 6, hours: 23, minutes: 59));
-          break;
-        case ChartMode.monthly:
-          startTime = DateTime(_selectedDate.year, _selectedDate.month, 1, 0, 0);
-          endTime = DateTime(_selectedDate.year, _selectedDate.month + 1, 0, 23, 59);
-          break;
-      }
+    // 計算時間範圍
+    DateTime endTime = _selectedDate;
+    DateTime startTime;
+    
+    switch (_selectedChartMode) {
+      case ChartMode.daily:
+        startTime = DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day, 0, 0);
+        endTime = DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day, 23, 59);
+        break;
+      case ChartMode.weekly:
+        startTime = _selectedDate.subtract(Duration(days: _selectedDate.weekday - 1));
+        startTime = DateTime(startTime.year, startTime.month, startTime.day, 0, 0);
+        endTime = startTime.add(const Duration(days: 6, hours: 23, minutes: 59));
+        break;
+      case ChartMode.monthly:
+        startTime = DateTime(_selectedDate.year, _selectedDate.month, 1, 0, 0);
+        endTime = DateTime(_selectedDate.year, _selectedDate.month + 1, 0, 23, 59);
+        break;
+    }
 
-      final startTimeStr = startTime.toIso8601String();
-      final endTimeStr = endTime.toIso8601String();
-      
-      // 獲取所有四個插座的歷史資料
-      List<List<dynamic>> allDevicesLogs = [];
-      
-      for (var device in _devices) {
-        try {
-          final response = await ApiService.get(
-            '/api/power-logs?device_id=${device['id']}&start_time=$startTimeStr&end_time=$endTimeStr&limit=1000'
-          );
+    final startTimeStr = startTime.toIso8601String();
+    final endTimeStr = endTime.toIso8601String();
+    
+    // ✅ 添加這個調試輸出
+    print('🔍 查詢時間範圍: $startTimeStr 到 $endTimeStr');
+    
+    // 獲取所有四個插座的歷史資料
+    List<List<dynamic>> allDevicesLogs = [];
+    
+    for (var device in _devices) {
+      try {
+        final response = await ApiService.get(
+          '/api/power-logs?device_id=${device['id']}&start_time=$startTimeStr&end_time=$endTimeStr'
+        );
 
-          if (response.statusCode == 200) {
-            final data = json.decode(response.body);
-            if (data['success'] == true && data['data'] != null && data['data'].isNotEmpty) {
-              allDevicesLogs.add(data['data']);
+
+        if (response.statusCode == 200) {
+          final data = json.decode(response.body);
+          if (data['success'] == true && data['data'] != null && data['data'].isNotEmpty) {
+            // ✅ 添加這個調試輸出
+            print('📦 ${device['name']} 返回 ${data['data'].length} 筆資料');
+            
+            // ✅ 打印前3筆數據的時間戳
+            for (int i = 0; i < (data['data'].length > 3 ? 3 : data['data'].length); i++) {
+              print('   ├─ [$i] ${data['data'][i]['timestamp']}');
             }
+            
+            allDevicesLogs.add(data['data']);
+          } else {
+            print('⚠️ ${device['name']} 無數據');
           }
-        } catch (e) {
-          print('獲取 ${device['name']} 歷史資料失敗: $e');
         }
+      } catch (e) {
+        print('❌ 獲取 ${device['name']} 歷史資料失敗: $e');
       }
+    }
 
-      if (allDevicesLogs.isNotEmpty) {
-        _processHistoricalDataSum(allDevicesLogs);
-      } else {
+    if (allDevicesLogs.isNotEmpty) {
+      _processHistoricalDataSum(allDevicesLogs);
+    } else {
         // ✅ 使用延遲更新
         if (mounted) {
           SchedulerBinding.instance.addPostFrameCallback((_) {
@@ -286,272 +300,279 @@ class _PowerMonitoringPageState extends State<PowerMonitoringPage> {
     }
   }
 
-  // 🔧 CSV 導出時也需要修復標籤格式
+  /// ✅ 修正版本: 直接匯出 CSV (移除選擇對話框)
   Future<void> _exportToCSV() async {
     try {
+      print('📊 開始匯出 CSV...');
+      print('   _chartData.isEmpty: ${_chartData.isEmpty}');
+      print('   _chartData.length: ${_chartData.length}');
+      
       if (_chartData.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('無數據可匯出')),
+          const SnackBar(content: Text('⚠️ 無數據可匯出,請先選擇日期並載入數據')),
         );
         return;
       }
 
-      List<List<dynamic>> rows = [];
+      // ✅ 手動構建 CSV 內容 (不使用 ListToCsvConverter)
+      StringBuffer csvContent = StringBuffer();
       
-      // 標題行
-      rows.add([_getTableHeaderText(), '區間用電量 (Wh)']);
+      // 標題區
+      String modeText = _getChartModeText();
+      String dateRange = _getExportDateRange();
+      
+      csvContent.writeln('用電報表 - $modeText');
+      csvContent.writeln('統計期間,$dateRange');
+      csvContent.writeln('匯出時間,${DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now())}');
+      csvContent.writeln(); // 空行
+      csvContent.writeln('${_getTableHeaderText()},區間用電量 (Wh)');
       
       // 數據行
       final sortedKeys = _chartData.keys.toList()
         ..sort((a, b) => (_safeToDouble(a) as Comparable).compareTo(_safeToDouble(b)));
       
+      print('   排序後的 keys: $sortedKeys');
+      
       for (var key in sortedKeys) {
-        String label;
-        if (_selectedChartMode == ChartMode.daily) {
-          int hour = _safeToDouble(key).toInt();
-          int nextHour = (hour + 1) % 24;
-          label = '$hour-$nextHour';
-          
-        } else if (_selectedChartMode == ChartMode.weekly) {
-          // ✅ 修復:週模式 CSV 標籤
-          List<String> weekdays = ['一', '二', '三', '四', '五', '六', '日'];
-          int index = _safeToDouble(key).toInt();
-          label = (index >= 1 && index <= 7) ? '週${weekdays[index - 1]}' : key.toString();
-          
-        } else {
-          // ✅ 修復:月模式 CSV 標籤
-          int day = _safeToDouble(key).toInt();
-          label = '$day日';
-        }
-        
-        rows.add([label, _chartData[key]!.toStringAsFixed(1)]);
+        String label = _formatLabelForExport(key);
+        String value = _chartData[key]!.toStringAsFixed(1);
+        csvContent.writeln('$label,$value');
+        print('   寫入: $label,$value');
       }
       
-      String csv = const ListToCsvConverter().convert(rows);
+      // 統計資訊
+      double totalEnergy = _chartData.values.fold(0.0, (sum, val) => sum + val);
+      csvContent.writeln();
+      csvContent.writeln('總用電量,${totalEnergy.toStringAsFixed(1)} Wh');
+      csvContent.writeln('平均用電量,${(totalEnergy / _chartData.length).toStringAsFixed(1)} Wh');
+      
+      print('✅ CSV 內容構建完成,長度: ${csvContent.length}');
+      
+      // ✅ 添加 UTF-8 BOM 並寫入檔案
+      List<int> bytes = [0xEF, 0xBB, 0xBF]; // UTF-8 BOM
+      bytes.addAll(utf8.encode(csvContent.toString()));
       
       final directory = await getApplicationDocumentsDirectory();
       final timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
-      final path = '${directory.path}/power_report_$timestamp.csv';
+      final filename = 'power_report_${_selectedChartMode.name}_$timestamp.csv';
+      final path = '${directory.path}/$filename';
+      
+      print('📁 檔案路徑: $path');
       
       final file = File(path);
-      await file.writeAsString(csv);
+      await file.writeAsBytes(bytes);
+      
+      // 驗證檔案
+      final fileExists = await file.exists();
+      final fileSize = await file.length();
+      print('   檔案存在: $fileExists');
+      print('   檔案大小: $fileSize bytes');
+      
+      if (fileSize == 0) {
+        throw Exception('檔案大小為 0 bytes');
+      }
       
       await Share.shareXFiles([XFile(path)], text: '用電報表');
       
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('CSV 已匯出: $path')),
+        SnackBar(
+          content: Text('✅ CSV 已匯出: $filename\n大小: $fileSize bytes'),
+          duration: const Duration(seconds: 3),
+        ),
       );
       
-    } catch (e) {
-      print('匯出 CSV 失敗: $e');
+    } catch (e, stackTrace) {
+      print('❌ 匯出 CSV 失敗: $e');
+      print('   Stack trace: $stackTrace');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('匯出失敗: $e')),
+        SnackBar(
+          content: Text('❌ 匯出失敗: $e'),
+          duration: const Duration(seconds: 5),
+        ),
       );
     }
   }
 
-  // 🔧 Excel 導出時也需要修復標籤格式
-  Future<void> _exportToExcel() async {
+  // 移除 _exportToExcel
+
+  /// ✅ 輔助函數:取得匯出用的日期範圍文字
+  String _getExportDateRange() {
+    DateTime startTime;
+    DateTime endTime;
+    
+    switch (_selectedChartMode) {
+      case ChartMode.daily:
+        startTime = DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day);
+        endTime = DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day, 23, 59);
+        return DateFormat('yyyy-MM-dd').format(startTime);
+        
+      case ChartMode.weekly:
+        startTime = _selectedDate.subtract(Duration(days: _selectedDate.weekday - 1));
+        endTime = startTime.add(const Duration(days: 6));
+        return '${DateFormat('yyyy-MM-dd').format(startTime)} ~ ${DateFormat('yyyy-MM-dd').format(endTime)}';
+        
+      case ChartMode.monthly:
+        startTime = DateTime(_selectedDate.year, _selectedDate.month, 1);
+        endTime = DateTime(_selectedDate.year, _selectedDate.month + 1, 0);
+        return DateFormat('yyyy-MM').format(startTime);
+    }
+  }
+
+  /// ✅ 輔助函數:格式化標籤用於匯出
+  String _formatLabelForExport(dynamic key) {
     try {
-      if (_chartData.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('無數據可匯出')),
-        );
-        return;
-      }
-
-      var excelFile = excel_pkg.Excel.createExcel();
-      
-      if (excelFile.tables.containsKey('Sheet1')) {
-        excelFile.delete('Sheet1');
-      }
-      
-      excelFile.copy('Sheet1', '用電報表');
-      excel_pkg.Sheet sheet = excelFile['用電報表'];
-      
-      // 標題行
-      sheet.cell(excel_pkg.CellIndex.indexByString('A1')).value = 
-          excel_pkg.TextCellValue(_getTableHeaderText());
-      sheet.cell(excel_pkg.CellIndex.indexByString('B1')).value = 
-          excel_pkg.TextCellValue('區間用電量 (Wh)');
-      
-      // 數據行
-      final sortedKeys = _chartData.keys.toList()
-        ..sort((a, b) => (_safeToDouble(a) as Comparable).compareTo(_safeToDouble(b)));
-      
-      int rowIndex = 2;
-      for (var key in sortedKeys) {
-        String label;
-        if (_selectedChartMode == ChartMode.daily) {
-          int hour = _safeToDouble(key).toInt();
-          int nextHour = (hour + 1) % 24;
-          label = '$hour-$nextHour';
-          
-        } else if (_selectedChartMode == ChartMode.weekly) {
-          // ✅ 修復:週模式 Excel 標籤
-          List<String> weekdays = ['一', '二', '三', '四', '五', '六', '日'];
-          int index = _safeToDouble(key).toInt();
-          label = (index >= 1 && index <= 7) ? '週${weekdays[index - 1]}' : key.toString();
-          
-        } else {
-          // ✅ 修復:月模式 Excel 標籤
-          int day = _safeToDouble(key).toInt();
-          label = '$day日';
+      if (_selectedChartMode == ChartMode.daily) {
+        int hour = _safeToDouble(key).toInt();
+        int nextHour = (hour + 1) % 24;
+        return '$hour:00-$nextHour:00';
+        
+      } else if (_selectedChartMode == ChartMode.weekly) {
+        List<String> weekdays = ['週一', '週二', '週三', '週四', '週五', '週六', '週日'];
+        int index = _safeToDouble(key).toInt();
+        
+        if (index >= 1 && index <= 7) {
+          // 計算實際日期
+          DateTime weekStart = _selectedDate.subtract(Duration(days: _selectedDate.weekday - 1));
+          DateTime actualDate = weekStart.add(Duration(days: index - 1));
+          return '${weekdays[index - 1]} (${DateFormat('MM/dd').format(actualDate)})';
         }
+        return key.toString();
         
-        sheet.cell(excel_pkg.CellIndex.indexByString('A$rowIndex')).value = 
-            excel_pkg.TextCellValue(label);
-        sheet.cell(excel_pkg.CellIndex.indexByString('B$rowIndex')).value = 
-            excel_pkg.TextCellValue(_chartData[key]!.toStringAsFixed(1));
-        rowIndex++;
+      } else {
+        int day = _safeToDouble(key).toInt();
+        DateTime actualDate = DateTime(_selectedDate.year, _selectedDate.month, day);
+        return '${day}日 (${DateFormat('MM/dd').format(actualDate)})';
       }
-      
-      final directory = await getApplicationDocumentsDirectory();
-      final timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
-      final path = '${directory.path}/power_report_$timestamp.xlsx';
-      
-      final file = File(path);
-      var bytes = excelFile.encode();
-      if (bytes != null) {
-        await file.writeAsBytes(bytes);
-        await Share.shareXFiles([XFile(path)], text: '用電報表');
-        
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Excel 已匯出: $path')),
-        );
-      }
-      
     } catch (e) {
-      print('匯出 Excel 失敗: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('匯出失敗: $e')),
-      );
+      print('格式化標籤時發生錯誤: $e');
+      return key.toString();
     }
   }
-
-    /// 顯示匯出格式選擇對話框
-    void _showExportDialog() {
-      showDialog(
-        context: context,
-        builder: (BuildContext context) {
-          return AlertDialog(
-            title: const Text('選擇匯出格式'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ListTile(
-                  leading: const Icon(Icons.description, color: Colors.green),
-                  title: const Text('CSV檔'),
-                  onTap: () {
-                    Navigator.of(context).pop();
-                    _exportToCSV();
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.table_chart, color: Colors.blue),
-                  title: const Text('Excel檔'),
-                  onTap: () {
-                    Navigator.of(context).pop();
-                    _exportToExcel();
-                  },
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('取消'),
-              ),
-            ],
-          );
-        },
-      );
-    }
+  
+  // 移除 _showExportDialog
 
 /// 🔧 修復版本: 處理歷史資料
-  void _processHistoricalDataSum(List<List<dynamic>> allDevicesLogs) {
-    Map<dynamic, double> intervalConsumption = {};
+void _processHistoricalDataSum(List<List<dynamic>> allDevicesLogs) {
+  Map<dynamic, double> intervalConsumption = {};
+  
+  // ✅ 添加調試計數器
+  int totalRecordsProcessed = 0;
+  Map<int, int> dayRecordCount = {};
 
-    for (var logs in allDevicesLogs) {
-      if (logs.isEmpty) continue;
+  for (var logs in allDevicesLogs) {
+    if (logs.isEmpty) continue;
 
-      Map<dynamic, List<Map<String, dynamic>>> groupedData = {};
-
-      for (var log in logs) {
-        try {
-          final timestampUtc = DateTime.parse(log['timestamp']);
-          final timestamp = timestampUtc.toLocal();
-          final power = _safeToDouble(log['power_w']);
-          
-          dynamic key;
-          
-          switch (_selectedChartMode) {
-            case ChartMode.daily:
-              key = timestamp.hour;
-              break;
-            case ChartMode.weekly:
-              key = timestamp.weekday; // 1-7 (週一到週日)
-              break;
-            case ChartMode.monthly:
-              key = timestamp.day; // 1-31
-              break;
-          }
-
-          if (!groupedData.containsKey(key)) {
-            groupedData[key] = [];
-          }
-          
-          groupedData[key]!.add({
-            'timestamp': timestamp,
-            'power': power,
-          });
-          
-        } catch (e) {
-          print('處理記錄時發生錯誤: $e');
-        }
+    logs.sort((a, b) {
+      try {
+        final timeA = DateTime.parse(a['timestamp']);
+        final timeB = DateTime.parse(b['timestamp']);
+        return timeA.compareTo(timeB);
+      } catch (e) {
+        return 0;
       }
+    });
 
-      // 計算該插座每組的區間用電量 (Wh)
-      groupedData.forEach((key, records) {
-        if (records.isEmpty) return;
+    Map<dynamic, List<Map<String, dynamic>>> groupedData = {};
+
+    for (var log in logs) {
+      try {
+        final timestampUtc = DateTime.parse(log['timestamp']);
+        final timestamp = timestampUtc.toLocal();
+        final power = _safeToDouble(log['power_w']);
         
-        records.sort((a, b) => a['timestamp'].compareTo(b['timestamp']));
+        totalRecordsProcessed++;
         
-        double totalEnergy = 0.0;
+        dynamic key;
         
-        for (int i = 0; i < records.length - 1; i++) {
-          DateTime t1 = records[i]['timestamp'];
-          DateTime t2 = records[i + 1]['timestamp'];
-          double p1 = records[i]['power'];
-          double p2 = records[i + 1]['power'];
-          
-          double timeDiffHours = t2.difference(t1).inSeconds / 3600.0;
+        switch (_selectedChartMode) {
+          case ChartMode.daily:
+            key = timestamp.hour;
+            break;
+          case ChartMode.weekly:
+            key = timestamp.weekday;
+            break;
+          case ChartMode.monthly:
+            key = timestamp.day;
+            
+            // ✅ 統計每天的記錄數
+            dayRecordCount[timestamp.day] = (dayRecordCount[timestamp.day] ?? 0) + 1;
+            
+            // ✅ 打印幾個樣本
+            if (totalRecordsProcessed <= 5) {
+              print('📅 處理記錄: ${timestamp.toString()} -> day=$key, power=$power');
+            }
+            break;
+        }
+
+        if (!groupedData.containsKey(key)) {
+          groupedData[key] = [];
+        }
+        
+        groupedData[key]!.add({
+          'timestamp': timestamp,
+          'power': power,
+        });
+        
+      } catch (e) {
+        print('❌ 處理記錄時發生錯誤: $e');
+      }
+    }
+
+    // 計算能量
+    groupedData.forEach((key, records) {
+      if (records.isEmpty) return;
+      
+      records.sort((a, b) => a['timestamp'].compareTo(b['timestamp']));
+      
+      double totalEnergy = 0.0;
+      
+      for (int i = 0; i < records.length - 1; i++) {
+        DateTime t1 = records[i]['timestamp'];
+        DateTime t2 = records[i + 1]['timestamp'];
+        double p1 = records[i]['power'];
+        double p2 = records[i + 1]['power'];
+        
+        double timeDiffHours = t2.difference(t1).inSeconds / 3600.0;
+        
+        if (timeDiffHours > 0 && timeDiffHours < 1.0) {
           double energy = (p1 + p2) / 2 * timeDiffHours;
           totalEnergy += energy;
         }
-        
-        if (!intervalConsumption.containsKey(key)) {
-          intervalConsumption[key] = 0.0;
-        }
-        intervalConsumption[key] = intervalConsumption[key]! + totalEnergy;
-      });
-    }
-
-    // ✅ 關鍵修復: 延遲 setState
-    if (mounted) {
-      SchedulerBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          setState(() {
-            _chartData = intervalConsumption;
-            if (_chartData.isEmpty) {
-              _errorMessage = '此時間範圍內無資料';
-            }
-            _isLoading = false;
-          });
-        }
-      });
-    }
+      }
+      
+      if (!intervalConsumption.containsKey(key)) {
+        intervalConsumption[key] = 0.0;
+      }
+      intervalConsumption[key] = intervalConsumption[key]! + totalEnergy;
+    });
   }
+
+  // ✅ 打印統計信息
+  print('📊 ========== 處理完成 ==========');
+  print('   總共處理: $totalRecordsProcessed 筆記錄');
+  print('   每日記錄數: ${dayRecordCount.keys.toList()..sort()}');
+  dayRecordCount.forEach((day, count) {
+    print('      $day日: $count 筆');
+  });
+  print('   最終結果: ${intervalConsumption.keys.toList()..sort()}');
+  print('================================');
+
+  if (mounted) {
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        setState(() {
+          _chartData = intervalConsumption;
+          if (_chartData.isEmpty) {
+            _errorMessage = '此時間範圍內無資料';
+          } else {
+            _errorMessage = null;
+          }
+          _isLoading = false;
+        });
+      }
+    });
+  }
+}
 
   /// 🔧 修復版本: 選擇日期
   Future<void> _selectDate(BuildContext context) async {
@@ -601,9 +622,7 @@ class _PowerMonitoringPageState extends State<PowerMonitoringPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // ... 其餘的 UI 代碼保持不變
-              
-              // 插座切換標籤
+            
               Container(
                 height: 50,
                 decoration: BoxDecoration(
@@ -611,17 +630,20 @@ class _PowerMonitoringPageState extends State<PowerMonitoringPage> {
                   borderRadius: BorderRadius.circular(25),
                 ),
                 child: Row(
-                  children: List.generate(4, (index) {
+                  // ✅ 遍歷 _devices 列表來獲取名稱
+                  children: List.generate(_devices.length, (index) {
                     final isSelected = _selectedPlugIndex == index;
+                    final deviceName = _devices[index]['name'] ?? '插座 ${index + 1}'; // 獲取設備名稱
+                    
                     return Expanded(
                       child: GestureDetector(
                         onTap: () {
-                            if (mounted && _selectedPlugIndex != index) {
-                              setState(() {
-                                _selectedPlugIndex = index;
-                              });
-                            }
-                          },
+                          if (mounted && _selectedPlugIndex != index) {
+                            setState(() {
+                              _selectedPlugIndex = index;
+                            });
+                          }
+                        },
                         child: Container(
                           margin: const EdgeInsets.all(4),
                           decoration: BoxDecoration(
@@ -638,10 +660,14 @@ class _PowerMonitoringPageState extends State<PowerMonitoringPage> {
                                 : null,
                           ),
                           child: Center(
+                            // ✅ 顯示設備名稱，並調整字體大小以適應
                             child: Text(
-                              '${index + 1}號',
+                              deviceName, // <--- 修正後的關鍵點
+                              textAlign: TextAlign.center,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
                               style: TextStyle(
-                                fontSize: 14,
+                                fontSize: 12, // 為了讓較長的名稱能顯示，將字體縮小
                                 fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                                 color: isSelected ? Theme.of(context).primaryColor : Colors.grey[600],
                               ),
@@ -769,10 +795,10 @@ class _PowerMonitoringPageState extends State<PowerMonitoringPage> {
               ),
               const SizedBox(height: 32),
 
-              // 匯出報表按鈕
+              // 匯出報表按鈕 (直接匯出 CSV)
               Center(
                 child: ElevatedButton.icon(
-                  onPressed: _showExportDialog,
+                  onPressed: _exportToCSV, // 直接調用 CSV 匯出
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Theme.of(context).primaryColor,
                     foregroundColor: Colors.white,
@@ -782,7 +808,7 @@ class _PowerMonitoringPageState extends State<PowerMonitoringPage> {
                     ),
                   ),
                   icon: const Icon(Icons.download, size: 24),
-                  label: const Text('匯出報表', style: TextStyle(fontSize: 18)),
+                  label: const Text('匯出報表 (CSV)', style: TextStyle(fontSize: 18)),
                 ),
               ),
               const SizedBox(height: 20),
@@ -846,61 +872,45 @@ Widget buildLoadingIndicator() {
 }
 
   /// 構建插座卡片 - 精簡橫式版本
-  Widget _buildPlugCard(PowerPlugData plug) {
-    final bool isOn = plug.switchState;
-    final Color statusColor = isOn ? Colors.green : Colors.grey;
-    
-    return Container(
-      padding: const EdgeInsets.all(16.0),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(15),
-        border: Border.all(color: statusColor.withOpacity(0.2), width: 1.5),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.15),
-            spreadRadius: 1,
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // 設備名稱與狀態
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: [
-                  Icon(Icons.power, color: statusColor, size: 24),
-                  const SizedBox(width: 8),
-                  Text(
-                    plug.deviceName,
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                ],
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: statusColor.withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(15),
-                  border: Border.all(color: statusColor, width: 1.5),
+Widget _buildPlugCard(PowerPlugData plug) {
+  final bool isOn = plug.switchState;
+  final Color statusColor = isOn ? Colors.green : Colors.grey;
+  
+  return Container(
+    padding: const EdgeInsets.all(16.0),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(15),
+      border: Border.all(color: statusColor.withOpacity(0.2), width: 1.5),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.grey.withOpacity(0.15),
+          spreadRadius: 1,
+          blurRadius: 4,
+          offset: const Offset(0, 2),
+        ),
+      ],
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // 設備名稱與狀態
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.power, color: statusColor, size: 24),
+                const SizedBox(width: 8),
+                Text(
+                  plug.deviceName,
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
-                child: Text(
-                  isOn ? '開啟' : '關閉',
-                  style: TextStyle(
-                    color: statusColor,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
+              ],
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
           
           // 三個主要數據 - 橫式排列
           Row(
@@ -950,7 +960,7 @@ Widget buildLoadingIndicator() {
         ],
       ),
     );
-  }
+}
 
   /// 構建精簡數據項目
   Widget _buildCompactDataItem({
@@ -1027,7 +1037,7 @@ Widget buildLoadingIndicator() {
                 child: Center(
                   child: Text(
                     '區間用電量 (Wh)',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                   ),
                 ),
               ),

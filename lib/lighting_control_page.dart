@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'dart:async';
 import 'package:iot_project/main.dart';
+import 'package:audioplayers/audioplayers.dart';
+import 'package:provider/provider.dart';
+import 'package:iot_project/music_service.dart';
 
 class LightingControlPage extends StatefulWidget {
   const LightingControlPage({super.key});
@@ -15,8 +18,8 @@ class LightingControlPage extends StatefulWidget {
 class _LightingControlPage extends State<LightingControlPage> {
   // 燈泡狀態
   List<LightState> _lights = [
-    LightState(name: '燈泡door', ip: '192.168.98.58'),
-    LightState(name: '燈泡pc', ip: '192.168.98.57'),
+    LightState(name: '燈泡door', ip: '192.168.0.128'),
+    LightState(name: '燈泡pc', ip: '192.168.0.104'),
   ];
 
   String? _activeScene;
@@ -31,35 +34,39 @@ class _LightingControlPage extends State<LightingControlPage> {
 
   // 情境配置
   final List<SceneConfig> _scenes = [
-    SceneConfig(
-      id: 'daily',
-      name: '日常情境',
-      description: '根據時間自動調整',
-      icon: Icons.wb_sunny,
-      color: Colors.orange,
-    ),
-    SceneConfig(
-      id: 'christmas',
-      name: '聖誕節',
-      description: '紅綠白交替閃爍',
-      icon: Icons.celebration,
-      color: Colors.red,
-    ),
-    SceneConfig(
-      id: 'party',
-      name: '派對',
-      description: '多彩快速變換',
-      icon: Icons.party_mode,
-      color: Colors.purple,
-    ),
-    SceneConfig(
-      id: 'halloween',
-      name: '萬聖節',
-      description: '橙紫神秘氛圍',
-      icon: Icons.nightlight,
-      color: Colors.deepOrange,
-    ),
-  ];
+  SceneConfig(
+    id: 'daily',
+    name: '日常情境',
+    description: '根據時間自動調整',
+    icon: Icons.wb_sunny,
+    color: Colors.orange,
+    musicPath: 'music/morning.mp3',  // ✨ 新增這行
+  ),
+  SceneConfig(
+    id: 'christmas',
+    name: '聖誕節',
+    description: '紅綠白交替閃爍',
+    icon: Icons.celebration,
+    color: Colors.red,
+    musicPath: 'music/christmas.mp3',  // ✨ 新增這行
+  ),
+  SceneConfig(
+    id: 'party',
+    name: '派對',
+    description: '多彩快速變換',
+    icon: Icons.party_mode,
+    color: Colors.purple,
+    musicPath: 'music/party.mp3',  // ✨ 新增這行
+  ),
+  SceneConfig(
+    id: 'halloween',
+    name: '萬聖節',
+    description: '橙紫神秘氛圍',
+    icon: Icons.nightlight,
+    color: Colors.deepOrange,
+    musicPath: 'music/halloween.mp3',  // ✨ 新增這行
+  ),
+];
 
   // 預設色彩選項 
   final List<ColorOption> _colorPresets = [
@@ -131,12 +138,12 @@ class _LightingControlPage extends State<LightingControlPage> {
   }
 
   Future<void> _fetchLightStatus() async {
-  // 1. 如果正在手動控制或處於緩衝期，跳過燈光狀態讀取，但仍需獲取全局模式
+  // 1. 如果正在手動控制或處於緩衝期,跳過燈光狀態讀取,但仍需獲取全域模式
   if (_isManualControlling || 
       (_lastManualControl != null && DateTime.now().difference(_lastManualControl!) < const Duration(seconds: 4))) {
-    print('⏸️ 控制中/緩衝期,跳過燈光狀態更新,但檢查全局模式');
+    print('⏸️ 控制中/緩衝期,跳過燈光狀態更新,但檢查全域模式');
     
-    // 即使跳過燈光狀態，我們仍嘗試獲取最新的全局模式
+    // 即使跳過燈光狀態,我們仍嘗試獲取最新的全域模式
     try {
         final globalModeResponse = await ApiService.get('/system/global-mode').timeout(
           const Duration(seconds: 3),
@@ -148,19 +155,23 @@ class _LightingControlPage extends State<LightingControlPage> {
 
           if (mounted) {
             setState(() {
-              _isManualMode = globalIsManual; 
+              _isManualMode = globalIsManual;
+              // ✅ 如果是手動模式,清除 activeScene
+              if (globalIsManual) {
+                _activeScene = null;
+                print('⏸️ 緩衝期更新: 手動模式,清除 activeScene');
+              }
             });
           }
         }
     } catch (e) {
-      print('獲取全局模式失敗: $e');
+      print('獲取全域模式失敗: $e');
     }
     return;
   }
 
-  // 2. 正常流程：同時獲取燈光和全局模式狀態
+  // 2. 正常流程:同時獲取燈光和全域模式狀態
   try {
-    // 同時發送兩個請求
     final results = await Future.wait([
         ApiService.get('/wiz-lights/status').timeout(const Duration(seconds: 3)),
         ApiService.get('/system/global-mode').timeout(const Duration(seconds: 3)),
@@ -177,16 +188,38 @@ class _LightingControlPage extends State<LightingControlPage> {
       
       if (mounted) {
         setState(() {
-          // --- 燈光狀態更新邏輯 ---
+          // 🔧 修改: 確保優先更新模式狀態
+          _isManualMode = globalIsManual;
+          
+          // ✅ 關鍵修改: 只有在自動模式下才設定 activeScene,手動模式下應該是 null
+          if (globalIsManual) {
+            _activeScene = null;  // 手動模式下,沒有啟動任何情境
+            print('📊 手動模式: 清除 activeScene');
+          } else {
+            final backendScene = lightData['activeScene'];
+            // 只有當後端確實有回傳場景時才設定
+            _activeScene = (backendScene != null && backendScene.toString().isNotEmpty) 
+                ? backendScene 
+                : null;
+            print('📊 自動模式: activeScene = $_activeScene (後端回傳: $backendScene)');
+          }
+          
+          // ✅ 關鍵修改: 先清除所有燈泡的錯誤狀態
+          for (var light in _lights) {
+            light.error = null;
+          }
+          
+          // 更新燈光狀態
           if (lightData['lights'] != null) {
             for (int i = 0; i < _lights.length && i < lightData['lights'].length; i++) {
               final lightItem = lightData['lights'][i];
               
+              // ✅ 只有當該燈泡有錯誤時才標記錯誤
               if (lightItem['error'] != null) {
                 _lights[i].error = lightItem['error'];
                 _lights[i].isOn = false;
               } else {
-                _lights[i].error = null;
+                // ✅ 正常燈泡的狀態更新
                 _lights[i].isOn = lightItem['isOn'] ?? false;
                 
                 double tempValue = (lightItem['temp'] ?? 4000).toDouble();
@@ -208,36 +241,27 @@ class _LightingControlPage extends State<LightingControlPage> {
             }
           }
           
-          // --- 全局模式同步邏輯 (核心修改) ---
-          _activeScene = lightData['activeScene'];
-          // 💡 確保本地模式與全局模式一致！
-          _isManualMode = globalIsManual; 
           _isLoading = false;
-        });
-      }
-    } else {
-      // 伺服器錯誤狀態碼
-      if (mounted) {
-        setState(() {
-          for (var light in _lights) {
-            light.error = '伺服器回應錯誤 (${lightResponse.statusCode}/${globalModeResponse.statusCode})';
-            light.isOn = false;
-          }
-          _isLoading = false;
+          
+          // 🔧 新增: 輸出除錯資訊
+          print('📊 狀態更新: 模式=${_isManualMode ? "手動" : "自動"}, 情境=$_activeScene');
+          print('💡 燈泡A: ${_lights[0].isOn ? "開" : "關"}${_lights[0].error != null ? " (離線)" : ""}, 燈泡B: ${_lights[1].isOn ? "開" : "關"}${_lights[1].error != null ? " (離線)" : ""}');
         });
       }
     }
   } catch (e) {
     print('獲取狀態失敗: $e');
+    // ❌ 不要在這裡統一標記所有燈泡錯誤
+    // 而是檢查是否整體網路問題
     if (mounted) {
       setState(() {
-        for (var light in _lights) {
-          if (e.toString().contains('TimeoutException')) {
+        // ✅ 只有當是超時或網路錯誤時,才標記所有燈泡
+        if (e.toString().contains('TimeoutException') || 
+            e.toString().contains('SocketException')) {
+          for (var light in _lights) {
             light.error = '連線超時,請檢查網路';
-          } else {
-            light.error = '連線異常';
+            light.isOn = false;
           }
-          light.isOn = false;
         }
         _isLoading = false;
       });
@@ -341,17 +365,20 @@ class _LightingControlPage extends State<LightingControlPage> {
 
   Future<void> _setScene(String sceneId) async {
   try {
-    // 💡 步驟 1: 呼叫全局 API，將整個系統切換到自動模式
+    if (_activeScene == sceneId) {
+      await _stopScene();
+      return;
+    }
+    
     final globalResponse = await ApiService.post('/system/global-mode', {
       'isManualMode': false,
     });
 
     if (globalResponse.statusCode != 200) {
-       _showErrorSnackBar('切換至自動模式失敗，無法啟動情境');
+       _showErrorSnackBar('切換至自動模式失敗,無法啟動情境');
        return;
     }
     
-    // 步驟 2: 啟動情境 (這會再次在後端將 WIZ 自身的模式設為 FALSE)
     final response = await ApiService.post('/wiz-lights/scene', {
       'scene': sceneId,
     });
@@ -359,10 +386,23 @@ class _LightingControlPage extends State<LightingControlPage> {
     if (response.statusCode == 200) {
       setState(() {
         _activeScene = sceneId;
-        _isManualMode = false; // 確保本地模式切換到自動
+        _isManualMode = false;
       });
+      
       final sceneName = _scenes.firstWhere((s) => s.id == sceneId).name;
       _showSuccessSnackBar('已啟動$sceneName');
+      
+      // 🎵 ✨ 新增這段:使用全域音樂服務播放對應的情境音樂
+      if (mounted) {
+        final musicService = Provider.of<MusicService>(context, listen: false);
+        await musicService.playSceneMusic(sceneId);
+      }
+      
+      _isManualControlling = false;
+      _lastManualControl = null;
+      
+      await _fetchLightStatus();
+      await Future.delayed(const Duration(seconds: 3));
       await _fetchLightStatus();
     }
   } catch (e) {
@@ -372,31 +412,34 @@ class _LightingControlPage extends State<LightingControlPage> {
 
   Future<void> _stopScene() async {
   try {
-    // 💡 步驟 1: 呼叫後端 API 停止 WIZ 燈光的情境
-    final stopResponse = await ApiService.post('/wiz-lights/scene/stop', {});
-
-    if (stopResponse.statusCode != 200) {
-       _showErrorSnackBar('停止情境失敗');
-       return;
+    // 🎵 ✅ 先停止音樂
+    if (mounted) {
+      final musicService = Provider.of<MusicService>(context, listen: false);
+      await musicService.stopMusic();
     }
     
-    // 💡 步驟 2: 呼叫全局 API，將整個系統切換到手動模式
-    final globalResponse = await ApiService.post('/system/global-mode', {
-      'isManualMode': true,
+    setState(() {
+      _activeScene = null;
+      _isManualMode = true;
     });
     
-    if (globalResponse.statusCode == 200) {
-      setState(() {
-        _activeScene = null;
-        _isManualMode = true; // 確保本地模式切換到手動
-      });
+    _isManualControlling = false;
+    _lastManualControl = null;
+    
+    final stopResponse = await ApiService.post('/wiz-lights/scene/stop', {});
+
+    if (stopResponse.statusCode == 200) {
       _showSuccessSnackBar('已停止情境模式');
+      await Future.delayed(const Duration(milliseconds: 500));
       await _fetchLightStatus();
     } else {
-       _showErrorSnackBar('切換至手動模式失敗');
+      _showErrorSnackBar('停止情境失敗');
+      await _fetchLightStatus();
     }
   } catch (e) {
-    _showErrorSnackBar('停止情境或模式切換失敗');
+    print('❌ 停止情境失敗: ${e.toString()}');
+    _showErrorSnackBar('停止情境失敗: ${e.toString()}');
+    await _fetchLightStatus();
   }
 }
 
@@ -1116,7 +1159,7 @@ class _LightingControlPage extends State<LightingControlPage> {
     );
   }
 
-  Widget _buildSceneSection(bool allLightsOffline) {
+    Widget _buildSceneSection(bool allLightsOffline) {
     return Container(
       padding: const EdgeInsets.all(16.0),
       decoration: BoxDecoration(
@@ -1188,7 +1231,7 @@ class _LightingControlPage extends State<LightingControlPage> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      '所有燈泡離線，情境功能已禁用',
+                      '所有燈泡離線,情境功能已禁用',
                       style: TextStyle(
                         fontSize: 12,
                         color: Colors.grey[700],
@@ -1215,15 +1258,15 @@ class _LightingControlPage extends State<LightingControlPage> {
               final isActive = _activeScene == scene.id;
 
               return InkWell(
-                // ✨ 修改點擊邏輯：如果已啟動則關閉，否則啟動
+                // ✨ 修改點擊邏輯:如果已啟動則關閉,否則啟動
                 onTap: allLightsOffline 
                     ? null 
                     : () {
                         if (isActive) {
-                          // 已啟動，點擊關閉
+                          // 已啟動,點擊關閉
                           _stopScene();
                         } else {
-                          // 未啟動，點擊啟動
+                          // 未啟動,點擊啟動
                           _setScene(scene.id);
                         }
                       },
@@ -1289,10 +1332,160 @@ class _LightingControlPage extends State<LightingControlPage> {
               );
             },
           ),
+          
+          // 🎵 音樂控制面板
+          Consumer<MusicService>(
+            builder: (context, musicService, child) {
+              if (musicService.currentPlayingScene != null) {
+                return Column(
+                  children: [
+                    const SizedBox(height: 20),
+                    _buildMusicControlPanel(musicService),
+                  ],
+                );
+              }
+              return const SizedBox.shrink();
+            },
+          ),
         ],
       ),
     );
   }
+
+  // 🎵 ✨ 新增整個方法
+Widget _buildMusicControlPanel(MusicService musicService) {
+  final sceneId = musicService.currentPlayingScene;
+  if (sceneId == null) return const SizedBox.shrink();
+  
+  final scene = _scenes.firstWhere((s) => s.id == sceneId);
+  
+  return Container(
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      gradient: LinearGradient(
+        colors: [
+          scene.color.withOpacity(0.2),
+          scene.color.withOpacity(0.1),
+        ],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      ),
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: scene.color.withOpacity(0.5), width: 2),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(
+              Icons.music_note,
+              color: scene.color,
+              size: 24,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '正在播放',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[600],
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  Text(
+                    '${scene.name} 音樂',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: scene.color,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // 暫停/播放按鈕
+            StreamBuilder<PlayerState>(
+              stream: musicService.audioPlayer.onPlayerStateChanged,
+              initialData: musicService.audioPlayer.state,
+              builder: (context, snapshot) {
+                final playerState = snapshot.data ?? PlayerState.stopped;
+                final isPlaying = playerState == PlayerState.playing;
+                
+                return IconButton(
+                  icon: Icon(
+                    isPlaying ? Icons.pause_circle : Icons.play_circle,
+                    size: 36,
+                    color: scene.color,
+                  ),
+                  onPressed: () async {
+                    print('🎵 按鈕點擊 - 當前狀態: $playerState');
+                    if (isPlaying) {
+                      await musicService.pauseMusic();
+                    } else {
+                      await musicService.resumeMusic();
+                    }
+                  },
+                );
+              },
+            ),
+            // 停止按鈕
+            IconButton(
+              icon: Icon(
+                Icons.stop_circle,
+                size: 32,
+                color: Colors.grey[600],
+              ),
+              onPressed: () async {
+                await musicService.stopMusic();
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        // 音量控制
+        Row(
+          children: [
+            Icon(
+              Icons.volume_down,
+              color: scene.color,
+              size: 20,
+            ),
+            Expanded(
+              child: SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  trackHeight: 3,
+                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.0),
+                  overlayShape: const RoundSliderOverlayShape(overlayRadius: 12.0),
+                  activeTrackColor: scene.color,
+                  inactiveTrackColor: scene.color.withOpacity(0.3),
+                  thumbColor: scene.color,
+                  overlayColor: scene.color.withOpacity(0.2),
+                ),
+                child: Slider(
+                  value: musicService.volume,
+                  min: 0.0,
+                  max: 1.0,
+                  onChanged: (value) {
+                    musicService.setVolume(value);
+                  },
+                ),
+              ),
+            ),
+            Icon(
+              Icons.volume_up,
+              color: scene.color,
+              size: 20,
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
+}
 }
 
 // ✨ 修改 LightState 類別,新增 lightMode 屬性
@@ -1328,6 +1521,7 @@ class SceneConfig {
   final String description;
   final IconData icon;
   final Color color;
+  final String musicPath;  // ✨ 新增這行
 
   SceneConfig({
     required this.id,
@@ -1335,6 +1529,7 @@ class SceneConfig {
     required this.description,
     required this.icon,
     required this.color,
+    required this.musicPath,  // ✨ 新增這行
   });
 }
 

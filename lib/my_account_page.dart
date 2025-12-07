@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:iot_project/notification_settings_page.dart';
 import 'package:iot_project/edit_profile_page.dart';
 import 'package:iot_project/main.dart';
+import 'package:iot_project/music_service.dart';  // ✨ 新增這行
 
 class MyAccountPage extends StatefulWidget {
   final VoidCallback onLogout;
@@ -149,6 +150,23 @@ class _MyAccountPageState extends State<MyAccountPage> {
               onPressed: () async {
                 // 關閉對話框
                 Navigator.of(dialogContext).pop();
+                
+                // 🎵 停止音樂播放
+                try {
+                  final musicService = MusicService();
+                  await musicService.stopMusic();
+                  print('🎵 登出時停止音樂');
+                } catch (e) {
+                  print('❌ 停止音樂失敗: $e');
+                }
+                
+                // 🔧 呼叫後端 API 停止所有情境
+                try {
+                  await ApiService.post('/wiz-lights/scene/stop', {});
+                  print('🔧 登出時停止所有情境');
+                } catch (e) {
+                  print('❌ 停止情境失敗: $e');
+                }
                 
                 // 清除認證資料
                 await TokenService.clearAuthData();

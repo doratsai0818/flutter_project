@@ -4,50 +4,7 @@ import 'dart:convert';
 import 'package:iot_project/notification_history_page.dart';
 import 'package:iot_project/main.dart';
 
-/// 定義通知偏好設定
-enum NotificationPreference {
-  vibrationAndSound,
-  vibrationOnly,
-  soundOnly,
-}
-
-extension NotificationPreferenceExtension on NotificationPreference {
-  String get displayName {
-    switch (this) {
-      case NotificationPreference.vibrationAndSound:
-        return '震動 + 鈴聲';
-      case NotificationPreference.vibrationOnly:
-        return '震動';
-      case NotificationPreference.soundOnly:
-        return '鈴聲';
-    }
-  }
-
-  static NotificationPreference fromString(String? value) {
-    if (value == null) return NotificationPreference.vibrationAndSound;
-    
-    switch (value) {
-      case 'vibrationOnly':
-        return NotificationPreference.vibrationOnly;
-      case 'soundOnly':
-        return NotificationPreference.soundOnly;
-      case 'vibrationAndSound':
-      default:
-        return NotificationPreference.vibrationAndSound;
-    }
-  }
-
-  String toBackendString() {
-    switch (this) {
-      case NotificationPreference.vibrationAndSound:
-        return 'vibrationAndSound';
-      case NotificationPreference.vibrationOnly:
-        return 'vibrationOnly';
-      case NotificationPreference.soundOnly:
-        return 'soundOnly';
-    }
-  }
-}
+// 移除 NotificationPreference enum 和 extension
 
 class NotificationSettingsPage extends StatefulWidget {
   const NotificationSettingsPage({super.key});
@@ -57,22 +14,17 @@ class NotificationSettingsPage extends StatefulWidget {
 }
 
 class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
-  // 各類通知的開關狀態和偏好
+  // 各類通知的開關狀態 (移除 Preference)
   bool _powerAnomalyOn = true;
-  NotificationPreference _powerAnomalyPreference = NotificationPreference.vibrationAndSound;
-
   bool _tempLightReminderOn = true;
-  NotificationPreference _tempLightReminderPreference = NotificationPreference.vibrationAndSound;
-
   bool _sensorAnomalyOn = true;
-  NotificationPreference _sensorAnomalyPreference = NotificationPreference.vibrationAndSound;
 
   bool _isLoading = false;
   bool _isInitialized = false;
 
   // 閾值設定
-  double _humidityHighThreshold = 28.0;  // ✅ 改名:濕度過高
-  double _tempHighThreshold = 32.0;      // ✅ 改名:溫度過高(原嚴重)
+  double _humidityHighThreshold = 28.0; 
+  double _tempHighThreshold = 32.0;
   double _powerSpikeThreshold = 2000;
   int _offlineTimeoutSec = 300;
 
@@ -98,19 +50,13 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
         if (mounted) {
           setState(() {
             _powerAnomalyOn = data['power_anomaly_on'] ?? true;
-            _powerAnomalyPreference = NotificationPreferenceExtension.fromString(
-              data['power_anomaly_preference']
-            );
+            // 移除 _powerAnomalyPreference 的設定
 
             _tempLightReminderOn = data['temp_light_reminder_on'] ?? true;
-            _tempLightReminderPreference = NotificationPreferenceExtension.fromString(
-              data['temp_light_reminder_preference']
-            );
+            // 移除 _tempLightReminderPreference 的設定
 
             _sensorAnomalyOn = data['sensor_anomaly_on'] ?? true;
-            _sensorAnomalyPreference = NotificationPreferenceExtension.fromString(
-              data['sensor_anomaly_preference']
-            );
+            // 移除 _sensorAnomalyPreference 的設定
 
             _isInitialized = true;
           });
@@ -163,7 +109,7 @@ Future<void> _fetchAlertThresholds() async {
         
         if (mounted) {
           setState(() {
-            _humidityHighThreshold = _toDouble(data['humidity_high_threshold']) ?? 70.0;  // ✅ 新欄位
+            _humidityHighThreshold = _toDouble(data['humidity_high_threshold']) ?? 70.0; 
             _tempHighThreshold = _toDouble(data['temp_critical_threshold']) ?? 32.0;
             _powerSpikeThreshold = _toDouble(data['power_spike_threshold']) ?? 2000.0;
             _offlineTimeoutSec = _toInt(data['offline_timeout_sec']) ?? 300;
@@ -195,7 +141,8 @@ Future<void> _fetchAlertThresholds() async {
 
   /// 處理 Token 過期
   Future<void> _handleTokenExpired() async {
-    await TokenService.clearAuthData();
+    // 假設 TokenService.clearAuthData() 存在於 main.dart 或其他地方
+    // await TokenService.clearAuthData(); 
     if (mounted) {
       Navigator.of(context).popUntil((route) => route.isFirst);
     }
@@ -221,28 +168,18 @@ Future<void> _fetchAlertThresholds() async {
   /// 向後端發送更新通知設定的請求
   Future<void> _updateNotificationSetting(
     String type, {
-    bool? isOn,
-    NotificationPreference? preference,
+    required bool isOn, // 只保留 isOn
   }) async {
     if (!_isInitialized) return;
 
     try {
       final Map<String, dynamic> body = {
         'type': type,
+        'isOn': isOn,
+        // 移除 preference 參數，但因為後端 API 需要 preference 欄位，所以統一傳送 'vibrationAndSound'
+        'preference': 'vibrationAndSound' 
       };
       
-      if (isOn != null) {
-        body['isOn'] = isOn;
-      }
-      if (preference != null) {
-        body['preference'] = preference.toBackendString();
-      }
-
-      if (isOn == null && preference == null) {
-        print('警告: 更新通知設定時沒有提供任何參數');
-        return;
-      }
-
       print('發送通知設定更新請求: $body');
 
       final response = await ApiService.post('/notification/settings', body);
@@ -282,10 +219,7 @@ Future<void> _fetchAlertThresholds() async {
     await _updateNotificationSetting(type, isOn: isOn);
   }
 
-  /// 更新偏好設定的便利方法  
-  Future<void> _updateNotificationPreference(String type, NotificationPreference preference) async {
-    await _updateNotificationSetting(type, preference: preference);
-  }
+  // 移除 _updateNotificationPreference
 
   /// 顯示訊息
   void _showSnackBar(String message, {bool isError = false}) {
@@ -437,8 +371,8 @@ Future<void> _fetchAlertThresholds() async {
 
                 // 儲存閾值
                 final response = await ApiService.post('/alert/thresholds', {
-                  'humidityHighThreshold': humidity,      // ✅ 濕度閾值
-                  'tempCriticalThreshold': temp,          // ✅ 溫度閾值
+                  'humidityHighThreshold': humidity,
+                  'tempCriticalThreshold': temp,
                   'powerSpikeThreshold': power,
                   'offlineTimeoutSec': offlineMin * 60,
                 });
@@ -554,11 +488,7 @@ Future<void> _fetchAlertThresholds() async {
                       setState(() => _powerAnomalyOn = value);
                       _updateNotificationSwitch('powerAnomaly', value);
                     } : null,
-                    preference: _powerAnomalyPreference,
-                    onPreferenceChanged: _isInitialized ? (newPreference) {
-                      setState(() => _powerAnomalyPreference = newPreference);
-                      _updateNotificationPreference('powerAnomaly', newPreference);
-                    } : null,
+                    // 移除 preference 參數
                   ),
 
                   // 環境警告提醒
@@ -573,11 +503,7 @@ Future<void> _fetchAlertThresholds() async {
                       setState(() => _tempLightReminderOn = value);
                       _updateNotificationSwitch('tempLightReminder', value);
                     } : null,
-                    preference: _tempLightReminderPreference,
-                    onPreferenceChanged: _isInitialized ? (newPreference) {
-                      setState(() => _tempLightReminderPreference = newPreference);
-                      _updateNotificationPreference('tempLightReminder', newPreference);
-                    } : null,
+                    // 移除 preference 參數
                   ),
 
                   // 設備狀態警告
@@ -592,11 +518,7 @@ Future<void> _fetchAlertThresholds() async {
                       setState(() => _sensorAnomalyOn = value);
                       _updateNotificationSwitch('sensorAnomaly', value);
                     } : null,
-                    preference: _sensorAnomalyPreference,
-                    onPreferenceChanged: _isInitialized ? (newPreference) {
-                      setState(() => _sensorAnomalyPreference = newPreference);
-                      _updateNotificationPreference('sensorAnomaly', newPreference);
-                    } : null,
+                    // 移除 preference 參數
                   ),
 
                   const SizedBox(height: 32),
@@ -653,7 +575,7 @@ Future<void> _fetchAlertThresholds() async {
     );
   }
 
-  /// 通知類型設定卡片
+  /// 通知類型設定卡片 (移除 Preference 相關參數和 UI)
   Widget _buildNotificationTypeCard(
     BuildContext context, {
     required int index,
@@ -662,10 +584,10 @@ Future<void> _fetchAlertThresholds() async {
     required IconData icon,
     required bool isOn,
     required ValueChanged<bool>? onChanged,
-    required NotificationPreference preference,
-    required ValueChanged<NotificationPreference>? onPreferenceChanged,
+    // 移除 preference 參數
+    // 移除 onPreferenceChanged 參數
   }) {
-    final isEnabled = onChanged != null && onPreferenceChanged != null;
+    final isEnabled = onChanged != null; // 簡化啟用檢查
 
     return Card(
       margin: const EdgeInsets.only(bottom: 16.0),
@@ -733,85 +655,17 @@ Future<void> _fetchAlertThresholds() async {
               ],
             ),
 
-            // 偏好設定 (只在開關開啟時顯示)
-            if (isOn) ...[
-              const SizedBox(height: 12),
-              const Divider(),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  const Icon(Icons.volume_up, size: 20, color: Colors.grey),
-                  const SizedBox(width: 8),
-                  const Text(
-                    '通知方式:',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const Spacer(),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).primaryColor.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: PopupMenuButton<NotificationPreference>(
-                      initialValue: preference,
-                      onSelected: isEnabled ? onPreferenceChanged : null,
-                      itemBuilder: (BuildContext context) => 
-                          NotificationPreference.values
-                              .map((p) => PopupMenuItem<NotificationPreference>(
-                                      value: p,
-                                      child: Row(
-                                        children: [
-                                          Icon(
-                                            _getPreferenceIcon(p),
-                                            size: 18,
-                                            color: Theme.of(context).primaryColor,
-                                          ),
-                                          const SizedBox(width: 8),
-                                          Text(p.displayName),
-                                        ],
-                                      ),
-                                    ))
-                              .toList(),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            preference.displayName,
-                            style: TextStyle(
-                              color: Theme.of(context).primaryColor,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          Icon(
-                            Icons.arrow_drop_down,
-                            color: Theme.of(context).primaryColor,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
+            // 移除偏好設定區塊
+            // if (isOn) ...[
+            //   const SizedBox(height: 12),
+            //   const Divider(),
+            //   ...
+            // ],
           ],
         ),
       ),
     );
   }
 
-  /// 根據偏好設定獲取對應圖示
-  IconData _getPreferenceIcon(NotificationPreference preference) {
-    switch (preference) {
-      case NotificationPreference.vibrationAndSound:
-        return Icons.vibration;
-      case NotificationPreference.vibrationOnly:
-        return Icons.vibration;
-      case NotificationPreference.soundOnly:
-        return Icons.volume_up;
-    }
-  }
+  // 移除 _getPreferenceIcon (不再需要)
 }
